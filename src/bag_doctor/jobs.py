@@ -8,7 +8,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-from .analyzer import AnalysisCancelled, analyze_bag
+from .analyzer import AnalysisCancelled, AnalysisProgress, analyze_bag
 
 ANALYZER_VERSION = "2a"
 TERMINAL_STATES = {"completed", "error", "cancelled"}
@@ -22,7 +22,7 @@ class Job:
     stage: str = "metadata inventory"
     processed_messages: int = 0
     total_messages: int | None = None
-    percent: float = 0
+    percent: float | None = 0
     started: float = field(default_factory=time.monotonic)
     elapsed_seconds: float = 0
     eta_seconds: float | None = None
@@ -79,18 +79,26 @@ def _run(job: Job) -> None:
                     job.state = "cancelled"
                     return
                 job.result = cached
+                job.total_messages = cached.summary.total_messages
+                job.processed_messages = cached.summary.total_messages
                 job.percent = 100
                 job.stage = "completed"
                 job.state = "completed"
             return
 
-        result = analyze_bag(job.path, cancel_requested=job.cancel.is_set)
+        result = analyze_bag(
+            job.path,
+            cancel_requested=job.cancel.is_set,
+            progress_callback=lambda progress: _update_progress(job, progress),
+        )
         with _lock:
             if job.cancel.is_set() or job.state == "cancelling":
                 job.state = "cancelled"
                 return
             _cache[key] = result
             job.result = result
+            job.processed_messages = result.summary.total_messages
+            job.total_messages = result.summary.total_messages
             job.percent = 100
             job.stage = "completed"
             job.state = "completed"
@@ -120,6 +128,24 @@ def create_job(path: Path) -> Job:
         _jobs[job_id] = job
     threading.Thread(target=_run, args=(job,), daemon=True).start()
     return job
+
+
+def _update_progress(job: Job, progress: AnalysisProgress) -> None:
+    with _lock:
+        job.processed_messages = max(0, progress.processed_messages)
+        job.total_messages = progress.total_messages
+        job.elapsed_seconds = max(job.elapsed_seconds, time.monotonic() - job.started)
+        if job.total_messages is not None and job.total_messages > 0:
+            raw_percent = job.processed_messages / job.total_messages * 100
+            job.percent = min(99.9, max(0.0, raw_percent))
+            if job.processed_messages > 0 and job.processed_messages < job.total_messages and job.elapsed_seconds > 0:
+                rate = job.processed_messages / job.elapsed_seconds
+                job.eta_seconds = max(0.0, (job.total_messages - job.processed_messages) / rate)
+            else:
+                job.eta_seconds = None
+        else:
+            job.percent = None
+            job.eta_seconds = None
 
 
 def get_job(job_id: str) -> Job | None:

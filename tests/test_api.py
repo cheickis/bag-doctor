@@ -6,7 +6,8 @@ from bag_doctor.jobs import create_job, request_cancel, get_job, Job, _jobs, _lo
 from bag_doctor.main import DEMO_BAG
 import time
 from threading import Event
-from bag_doctor.analyzer import AnalysisCancelled, analyze_bag
+from bag_doctor.analyzer import AnalysisCancelled, AnalysisProgress, analyze_bag
+from bag_doctor.jobs import _update_progress
 
 
 def test_demo_analysis_endpoint():
@@ -65,6 +66,31 @@ def test_cancel_job_reaches_terminal_cancelled():
 def test_analyzer_cancellation_callback_raises():
     with pytest.raises(AnalysisCancelled):
         analyze_bag(DEMO_BAG, cancel_requested=lambda: True)
+
+
+def test_analyzer_progress_initial_final_and_monotonic():
+    updates = []
+    result = analyze_bag(DEMO_BAG, progress_callback=updates.append)
+    assert updates[0] == AnalysisProgress(0, result.summary.total_messages)
+    assert updates[-1] == AnalysisProgress(result.summary.total_messages, result.summary.total_messages)
+    assert [item.processed_messages for item in updates] == sorted(item.processed_messages for item in updates)
+
+
+def test_job_progress_percentage_and_eta_rules():
+    job = create_job(DEMO_BAG)
+    _update_progress(job, AnalysisProgress(10, 100))
+    assert 0 < job.percent < 100
+    assert job.eta_seconds is not None
+    _update_progress(job, AnalysisProgress(10, None))
+    assert job.percent is None
+    assert job.eta_seconds is None
+
+
+def test_frontend_handles_unknown_progress_total():
+    with TestClient(app) as client:
+        html = client.get("/").text
+    assert "total unavailable" in html
+    assert "indeterminate" in html
 
 
 def test_sse_cancelled_and_job_error_events_close():
