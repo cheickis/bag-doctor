@@ -7,7 +7,7 @@ from pathlib import Path
 from statistics import median
 
 from .schemas import AnalysisResult, BagSummary, SilenceWindow, TopicHealth
-from .ingestion.reader import BagReader
+from .ingestion.reader import open_bag_source
 
 NANOSECONDS = 1_000_000_000
 
@@ -35,12 +35,13 @@ def analyze_bag(
     first_timestamp: int | None = None
     last_timestamp: int | None = None
 
-    with BagReader(path) as reader:
-        topic_types = {connection.topic: connection.msgtype for connection in reader.connections}
-        storage_format = "mcap" if any(path.glob("*.mcap")) else "sqlite3"
-
-        for connection, timestamp, _rawdata in reader.messages():
-            topic = connection.topic
+    source = open_bag_source(path)
+    try:
+        topic_types = dict(source.topic_types)
+        storage_format = source.storage_format
+        for record in source.messages():
+            topic = record.topic
+            timestamp = record.timestamp_ns
             counts[topic] += 1
             first_timestamp = timestamp if first_timestamp is None else min(first_timestamp, timestamp)
             last_timestamp = timestamp if last_timestamp is None else max(last_timestamp, timestamp)
@@ -49,6 +50,9 @@ def analyze_bag(
                 deltas[topic].append(delta)
                 gaps[topic].append((previous[topic], timestamp))
             previous[topic] = timestamp
+
+    finally:
+        source.close()
 
     if first_timestamp is None or last_timestamp is None:
         raise ValueError(f"Bag contains no messages: {path}")

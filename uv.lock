@@ -60,6 +60,7 @@ version = "0.1.0"
 source = { editable = "." }
 dependencies = [
     { name = "fastapi" },
+    { name = "mcap" },
     { name = "python-multipart" },
     { name = "rosbags" },
     { name = "uvicorn", extra = ["standard"] },
@@ -74,6 +75,7 @@ dev = [
 [package.metadata]
 requires-dist = [
     { name = "fastapi", specifier = ">=0.116,<1" },
+    { name = "mcap", specifier = ">=1.3,<2" },
     { name = "python-multipart", specifier = ">=0.0.20,<1" },
     { name = "rosbags", specifier = ">=0.10,<1" },
     { name = "uvicorn", extras = ["standard"], specifier = ">=0.35,<1" },
@@ -215,6 +217,19 @@ wheels = [
     { url = "https://files.pythonhosted.org/packages/b2/e7/d667d337367686311c38b580d1ca3d5a23a6617e129f26becd4f5dc458df/lz4-4.4.5-cp312-cp312-win32.whl", hash = "sha256:214e37cfe270948ea7eb777229e211c601a3e0875541c1035ab408fbceaddf50", size = 88189, upload-time = "2025-11-03T13:01:52.605Z" },
     { url = "https://files.pythonhosted.org/packages/a5/0b/a54cd7406995ab097fceb907c7eb13a6ddd49e0b231e448f1a81a50af65c/lz4-4.4.5-cp312-cp312-win_amd64.whl", hash = "sha256:713a777de88a73425cf08eb11f742cd2c98628e79a8673d6a52e3c5f0c116f33", size = 99497, upload-time = "2025-11-03T13:01:53.477Z" },
     { url = "https://files.pythonhosted.org/packages/6a/7e/dc28a952e4bfa32ca16fa2eb026e7a6ce5d1411fcd5986cd08c74ec187b9/lz4-4.4.5-cp312-cp312-win_arm64.whl", hash = "sha256:a88cbb729cc333334ccfb52f070463c21560fca63afcf636a9f160a55fac3301", size = 91279, upload-time = "2025-11-03T13:01:54.419Z" },
+]
+
+[[package]]
+name = "mcap"
+version = "1.4.0"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "lz4" },
+    { name = "zstandard" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/f8/d7/0f17e59733a71bd4d5b38afc8484531c2cd7648b08c79863ee95fc42b002/mcap-1.4.0.tar.gz", hash = "sha256:0528e2f86a61bfec73779e0628e6cf27af83d01d89e20b27d5ec9f0b556a63ac", size = 22155, upload-time = "2026-06-18T21:50:07.965Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/48/14/7e0b2a74b67e16e5f40ab78cc3e5aa4e7bdd55e0aec963d573edc07a15cd/mcap-1.4.0-py3-none-any.whl", hash = "sha256:0b48b1cc951b8d5aabd2599e60d410bae4f1be1819094f54117b7cbf6b3ee2e9", size = 20826, upload-time = "2026-06-18T21:50:06.704Z" },
 ]
 
 [[package]]

@@ -32,15 +32,6 @@ class StagedInput:
         self._temporary.cleanup()
 
 
-def _sidecar(source: Path, destination: Path, filename: str) -> None:
-    text = source.read_text()
-    # Metadata stores relative file names; rewrite only the generated staging name.
-    import re
-    text = re.sub(r"(?m)(path: ).*$", rf"\g<1>{filename}", text, count=1)
-    text = re.sub(r"(?m)(- ).*\.(?:mcap|db3)$", rf"\g<1>{filename}", text, count=1)
-    destination.write_text(text)
-
-
 def _safe_member(member: zipfile.ZipInfo) -> None:
     name = member.filename
     target = Path(name)
@@ -93,19 +84,14 @@ def stage_upload(source: Path, original_filename: str, max_bytes: int = MAX_UPLO
         if suffix == ".zip":
             path, kind, metadata, count, warnings = _zip_stage(source, root)
         elif suffix == ".mcap":
-            path = root / "bag"
-            path.mkdir()
-            shutil.copy2(source, path / source.name)
-            # rosbags' Reader requires the rosbag2 metadata sidecar even for MCAP.
-            demo_metadata = Path(__file__).parents[1] / "data" / "failed_robot_demo" / "metadata.yaml"
-            _sidecar(demo_metadata, path / "metadata.yaml", source.name)
-            kind, metadata, count, warnings = InputKind.MCAP, True, 1, []
+            path = root / source.name
+            shutil.copy2(source, path)
+            kind, metadata, count, warnings = InputKind.MCAP, False, 1, [
+                "metadata.yaml was not provided; bag-level metadata is unavailable.",
+            ]
         elif suffix == ".db3":
-            path = root / "bag"
-            path.mkdir()
-            shutil.copy2(source, path / source.name)
-            demo_metadata = Path(__file__).parents[1] / "data" / "failed_robot_sqlite_demo" / "metadata.yaml"
-            _sidecar(demo_metadata, path / "metadata.yaml", source.name)
+            path = root / source.name
+            shutil.copy2(source, path)
             kind, metadata, count, warnings = InputKind.SQLITE_STANDALONE, False, 1, [
                 "metadata.yaml was not provided; bag-level metadata is unavailable.",
             ]
