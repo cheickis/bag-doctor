@@ -6,6 +6,7 @@ from fastapi import FastAPI, File, HTTPException, UploadFile, Request, Query
 from pydantic import BaseModel
 from fastapi.responses import StreamingResponse
 from fastapi.encoders import jsonable_encoder
+from fastapi.staticfiles import StaticFiles
 import asyncio, json
 from fastapi.responses import FileResponse
 
@@ -17,9 +18,13 @@ from .investigator import investigate, InvestigationResult
 
 PACKAGE_ROOT = Path(__file__).parent
 DEMO_BAG = PACKAGE_ROOT / "data" / "failed_robot_demo"
-WEB_ROOT = PACKAGE_ROOT / "web"
+WEB_ROOT = PACKAGE_ROOT / "web"  # Legacy vanilla UI source; intentionally not served at runtime.
+FRONTEND_DIST = PACKAGE_ROOT / "web" / "dist"
+FRONTEND_INDEX = FRONTEND_DIST / "index.html"
+FRONTEND_ASSETS = FRONTEND_DIST / "assets"
 
 app = FastAPI(title="Bag Doctor", version="0.1.0")
+app.mount("/assets", StaticFiles(directory=FRONTEND_ASSETS, check_dir=False), name="frontend-assets")
 
 class LocalRequest(BaseModel):
     path: str
@@ -31,7 +36,9 @@ class InvestigationRequest(BaseModel):
 
 @app.get("/", include_in_schema=False)
 def index() -> FileResponse:
-    return FileResponse(WEB_ROOT / "index.html")
+    if not FRONTEND_INDEX.is_file():
+        raise HTTPException(503, "Frontend production build is unavailable")
+    return FileResponse(FRONTEND_INDEX)
 
 
 @app.get("/api/analyze/demo", response_model=AnalysisResult)
