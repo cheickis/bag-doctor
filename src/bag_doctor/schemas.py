@@ -18,6 +18,9 @@ class TopicHealth(BaseModel):
     median_rate_hz: float | None
     maximum_gap_seconds: float | None
     silence_windows: list[SilenceWindow] = Field(default_factory=list)
+    silence_window_count: int = 0
+    returned_silence_window_count: int = 0
+    silence_windows_truncated: bool = False
 
 
 class BagSummary(BaseModel):
@@ -42,3 +45,6 @@ class AnalysisResult(BaseModel):
     summary: BagSummary
     topics: list[TopicHealth]
     incidents: list[SilenceWindow]
+    incident_count: int = 0
+    returned_incident_count: int = 0
+    incidents_truncated: bool = False
