@@ -31,6 +31,17 @@ def test_browser_page():
     assert "/cancel" in response.text
     assert "job-error" in response.text
     assert "Upload Small Bag" in response.text
+    assert "silence_window_count" in response.text
+    assert "returned_silence_window_count" in response.text
+    assert "silence_windows_truncated" in response.text
+    assert "incident_count" in response.text
+    assert "returned_incident_count" in response.text
+    assert "incidents_truncated" in response.text
+    assert "Showing ${returned.toLocaleString()} of ${total.toLocaleString()} findings" in response.text
+    assert "Showing ${" in response.text
+    assert "data.topics||[]" in response.text
+    assert "data.incidents||[]" in response.text
+    assert "Number.isInteger(value)" in response.text
 
 
 def test_job_endpoint_and_sse_exclude_result():
