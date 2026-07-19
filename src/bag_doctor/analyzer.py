@@ -12,6 +12,7 @@ from .schemas import AnalysisResult, BagSummary, SilenceWindow, TopicHealth
 from .ingestion.reader import open_bag_source
 from .analysis_workspace import AnalysisWorkspace
 from .classification import TopicTimingConfiguration, classify_topic, TimingClassification
+import hashlib
 
 NANOSECONDS = 1_000_000_000
 
@@ -41,6 +42,10 @@ class AnalysisLimits:
 
 def _seconds(value_ns: int) -> float:
     return round(value_ns / NANOSECONDS, 6)
+
+def _evidence_id(path: Path, topic: str, start_ns: int, end_ns: int, duration_ns: int) -> str:
+    value = f"{path.resolve()}|{topic}|silence_window|{start_ns}|{end_ns}|{duration_ns}"
+    return "ev_" + hashlib.sha256(value.encode()).hexdigest()[:24]
 
 
 def analyze_bag(
@@ -147,7 +152,7 @@ def analyze_bag(
         exact_incident_count += silence_count
         if threshold and expected_period:
             for gap_start, gap_end, gap in workspace.details(topic, threshold, limits.max_silence_windows_per_topic):
-                windows.append(SilenceWindow(topic=topic, start_seconds=_seconds(gap_start - first_timestamp), end_seconds=_seconds(gap_end - first_timestamp), duration_seconds=_seconds(gap), expected_period_seconds=_seconds(expected_period)))
+                windows.append(SilenceWindow(evidence_id=_evidence_id(path, topic, gap_start, gap_end, gap), topic=topic, start_seconds=_seconds(gap_start - first_timestamp), end_seconds=_seconds(gap_end - first_timestamp), duration_seconds=_seconds(gap), expected_period_seconds=_seconds(expected_period)))
 
         topics.append(
             TopicHealth(
@@ -166,7 +171,7 @@ def analyze_bag(
 
       if cancel_requested and cancel_requested():
           raise AnalysisCancelled()
-      global_details = [SilenceWindow(topic=topic, start_seconds=_seconds(start), end_seconds=_seconds(end), duration_seconds=_seconds(duration), expected_period_seconds=_seconds(workspace.median(topic) or 0)) for topic, start, end, duration in workspace.global_details(thresholds, limits.max_incidents)]
+      global_details = [SilenceWindow(evidence_id=_evidence_id(path, topic, start, end, duration), topic=topic, start_seconds=_seconds(start), end_seconds=_seconds(end), duration_seconds=_seconds(duration), expected_period_seconds=_seconds(workspace.median(topic) or 0)) for topic, start, end, duration in workspace.global_details(thresholds, limits.max_incidents)]
       return AnalysisResult(
         summary=BagSummary(
             bag_name=path.name,

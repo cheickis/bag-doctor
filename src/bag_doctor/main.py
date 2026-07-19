@@ -2,7 +2,7 @@
 
 from pathlib import Path
 
-from fastapi import FastAPI, File, HTTPException, UploadFile, Request
+from fastapi import FastAPI, File, HTTPException, UploadFile, Request, Query
 from pydantic import BaseModel
 from fastapi.responses import StreamingResponse
 from fastapi.encoders import jsonable_encoder
@@ -50,6 +50,37 @@ def job_status(job_id: str) -> dict:
     job = get_job(job_id)
     if not job: raise HTTPException(404, "Unknown analysis job")
     return job_payload(job, include_result=True)
+
+@app.get("/api/analyze/jobs/{job_id}/evidence")
+def job_evidence(job_id: str, limit: int = Query(50, ge=1, le=200), offset: int = Query(0, ge=0), topic: str | None = None, evidence_type: str | None = None) -> dict:
+    job = get_job(job_id)
+    if not job:
+        raise HTTPException(404, "Unknown analysis job")
+    if job.result is None:
+        raise HTTPException(409, "Evidence is not available until analysis completes")
+    items = [item for health in job.result.topics for item in health.silence_windows]
+    seen = {item.evidence_id for item in items}
+    items.extend(item for item in job.result.incidents if item.evidence_id not in seen)
+    if topic:
+        items = [item for item in items if item.topic == topic]
+    if evidence_type and evidence_type != "silence_window":
+        items = []
+    items.sort(key=lambda item: (-item.duration_seconds, item.topic, item.start_seconds, item.evidence_id or ""))
+    page = items[offset:offset + limit]
+    return {"total_count": len(items), "returned_count": len(page), "offset": offset, "limit": limit, "items": [item.model_dump(mode="json") for item in page]}
+
+@app.get("/api/analyze/jobs/{job_id}/evidence/{evidence_id}")
+def job_evidence_item(job_id: str, evidence_id: str) -> dict:
+    job = get_job(job_id)
+    if not job:
+        raise HTTPException(404, "Unknown analysis job")
+    if job.result is None:
+        raise HTTPException(409, "Evidence is not available until analysis completes")
+    candidates = [item for health in job.result.topics for item in health.silence_windows] + list(job.result.incidents)
+    for item in candidates:
+        if item.evidence_id == evidence_id:
+            return item.model_dump(mode="json")
+    raise HTTPException(404, "Unknown evidence ID")
 
 def job_payload(job, *, include_result: bool) -> dict:
     """Shared, FastAPI-safe representation of a job."""

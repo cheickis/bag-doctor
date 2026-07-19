@@ -5,6 +5,7 @@ from .classification import TimingClassification
 
 
 class SilenceWindow(BaseModel):
+    evidence_id: str | None = None
     topic: str
     start_seconds: float
     end_seconds: float
