@@ -23,6 +23,15 @@ class AnalysisWorkspace:
             self.db.commit(); self._batch.clear()
     def count(self, topic: str, threshold: int) -> int:
         return self.db.execute("SELECT COUNT(*) FROM gaps WHERE topic=? AND duration_ns>=?", (topic, threshold)).fetchone()[0]
+    def stable_fraction(self, topic: str, median_ns: int) -> float:
+        total = self.db.execute("SELECT COUNT(*) FROM gaps WHERE topic=?", (topic,)).fetchone()[0]
+        if not total or median_ns <= 0:
+            return 0.0
+        near = self.db.execute(
+            "SELECT COUNT(*) FROM gaps WHERE topic=? AND duration_ns BETWEEN ? AND ?",
+            (topic, int(median_ns * 0.8), int(median_ns * 1.2)),
+        ).fetchone()[0]
+        return near / total
     def median(self, topic: str) -> int | None:
         count = self.db.execute("SELECT COUNT(*) FROM gaps WHERE topic=?", (topic,)).fetchone()[0]
         if not count: return None

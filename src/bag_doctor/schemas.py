@@ -1,6 +1,7 @@
 """API models for deterministic bag analysis results."""
 
 from pydantic import BaseModel, Field
+from .classification import TimingClassification
 
 
 class SilenceWindow(BaseModel):
@@ -17,6 +18,7 @@ class TopicHealth(BaseModel):
     message_count: int
     median_rate_hz: float | None
     maximum_gap_seconds: float | None
+    timing_classification: TimingClassification = TimingClassification.UNKNOWN
     silence_windows: list[SilenceWindow] = Field(default_factory=list)
     silence_window_count: int = 0
     returned_silence_window_count: int = 0

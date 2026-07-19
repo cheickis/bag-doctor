@@ -11,6 +11,7 @@ from dataclasses import dataclass
 from .schemas import AnalysisResult, BagSummary, SilenceWindow, TopicHealth
 from .ingestion.reader import open_bag_source
 from .analysis_workspace import AnalysisWorkspace
+from .classification import TopicTimingConfiguration, classify_topic, TimingClassification
 
 NANOSECONDS = 1_000_000_000
 
@@ -51,6 +52,7 @@ def analyze_bag(
     progress_callback: ProgressCallback | None = None,
     limits: AnalysisLimits | None = None,
     workspace_factory: Callable[[int], object] | None = None,
+    topic_configuration: TopicTimingConfiguration | None = None,
 ) -> AnalysisResult:
     """Analyze connection metadata and timestamps without decoding message bodies.
 
@@ -59,10 +61,16 @@ def analyze_bag(
     """
     path = Path(path)
     limits = limits or AnalysisLimits()
+    if topic_configuration is not None and not isinstance(topic_configuration, TopicTimingConfiguration):
+        topic_configuration = TopicTimingConfiguration.model_validate(topic_configuration)
     if cancel_requested and cancel_requested():
         raise AnalysisCancelled()
     counts: dict[str, int] = defaultdict(int)
     previous: dict[str, int] = {}
+    topic_first: dict[str, int] = {}
+    topic_last: dict[str, int] = {}
+    gap_counts: dict[str, int] = defaultdict(int)
+    gap_sums: dict[str, int] = defaultdict(int)
     first_timestamp: int | None = None
     last_timestamp: int | None = None
 
@@ -83,11 +91,15 @@ def analyze_bag(
             topic = record.topic
             timestamp = record.timestamp_ns
             counts[topic] += 1
+            topic_first.setdefault(topic, timestamp)
+            topic_last[topic] = timestamp
             first_timestamp = timestamp if first_timestamp is None else min(first_timestamp, timestamp)
             last_timestamp = timestamp if last_timestamp is None else max(last_timestamp, timestamp)
             if topic in previous:
                 delta = timestamp - previous[topic]
                 workspace.add(topic, previous[topic], timestamp)
+                gap_counts[topic] += 1
+                gap_sums[topic] += delta
             previous[topic] = timestamp
             processed_messages += 1
             if progress_callback and processed_messages % 5000 == 0:
@@ -114,17 +126,28 @@ def analyze_bag(
       for topic in sorted(topic_types):
         if cancel_requested and cancel_requested(): raise AnalysisCancelled()
         median_delta = workspace.median(topic)
+        mean_delta = (gap_sums[topic] / gap_counts[topic]) if gap_counts[topic] else None
+        classification, expected_period, configured_threshold = classify_topic(
+            topic, message_count=counts[topic], gap_count=gap_counts[topic],
+            median_gap_ns=median_delta, mean_gap_ns=mean_delta,
+            first_timestamp_ns=topic_first.get(topic, 0), last_timestamp_ns=topic_last.get(topic, 0),
+            configuration=topic_configuration,
+            stable_gap_fraction=workspace.stable_fraction(topic, median_delta) if median_delta else None,
+        )
         threshold = None
-        if median_delta:
-            threshold = max(int(minimum_silence_seconds * NANOSECONDS), int(median_delta * silence_multiplier))
+        periodic = classification == TimingClassification.PERIODIC or (
+            classification == TimingClassification.USER_CONFIGURED and expected_period is not None
+        )
+        if periodic and expected_period:
+            threshold = configured_threshold or max(int(minimum_silence_seconds * NANOSECONDS), int(expected_period * silence_multiplier))
             thresholds[topic] = threshold
 
         windows: list[SilenceWindow] = []
-        silence_count = workspace.count(topic, threshold) if median_delta and threshold else 0
+        silence_count = workspace.count(topic, threshold) if threshold else 0
         exact_incident_count += silence_count
-        if median_delta and threshold:
+        if threshold and expected_period:
             for gap_start, gap_end, gap in workspace.details(topic, threshold, limits.max_silence_windows_per_topic):
-                windows.append(SilenceWindow(topic=topic, start_seconds=_seconds(gap_start - first_timestamp), end_seconds=_seconds(gap_end - first_timestamp), duration_seconds=_seconds(gap), expected_period_seconds=_seconds(median_delta)))
+                windows.append(SilenceWindow(topic=topic, start_seconds=_seconds(gap_start - first_timestamp), end_seconds=_seconds(gap_end - first_timestamp), duration_seconds=_seconds(gap), expected_period_seconds=_seconds(expected_period)))
 
         topics.append(
             TopicHealth(
@@ -133,6 +156,7 @@ def analyze_bag(
                 message_count=counts[topic],
                 median_rate_hz=round(NANOSECONDS / median_delta, 3) if median_delta else None,
                 maximum_gap_seconds=_seconds(workspace.db.execute("SELECT MAX(duration_ns) FROM gaps WHERE topic=?", (topic,)).fetchone()[0]) if workspace.db.execute("SELECT COUNT(*) FROM gaps WHERE topic=?", (topic,)).fetchone()[0] else None,
+                timing_classification=classification.value,
                 silence_windows=windows,
                 silence_window_count=silence_count,
                 returned_silence_window_count=len(windows),
