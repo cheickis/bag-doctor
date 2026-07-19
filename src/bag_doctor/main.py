@@ -13,6 +13,7 @@ from .analyzer import analyze_bag
 from .schemas import AnalysisResult
 from .ingestion import InputValidationError, stage_upload
 from .jobs import create_job, get_job, request_cancel
+from .investigator import investigate, InvestigationResult
 
 PACKAGE_ROOT = Path(__file__).parent
 DEMO_BAG = PACKAGE_ROOT / "data" / "failed_robot_demo"
@@ -23,6 +24,10 @@ app = FastAPI(title="Bag Doctor", version="0.1.0")
 class LocalRequest(BaseModel):
     path: str
 
+class InvestigationRequest(BaseModel):
+    question: str
+    max_tool_calls: int = 6
+
 
 @app.get("/", include_in_schema=False)
 def index() -> FileResponse:
@@ -32,6 +37,18 @@ def index() -> FileResponse:
 @app.get("/api/analyze/demo", response_model=AnalysisResult)
 def analyze_demo() -> AnalysisResult:
     return analyze_bag(DEMO_BAG)
+
+@app.post("/api/analyze/jobs/{job_id}/investigate", response_model=InvestigationResult)
+def investigate_job(job_id: str, request: InvestigationRequest) -> InvestigationResult:
+    try:
+        return investigate(job_id, request.question, max_tool_calls=request.max_tool_calls)
+    except LookupError as exc:
+        raise HTTPException(404, str(exc)) from exc
+    except RuntimeError as exc:
+        status = 503 if "OPENAI_API_KEY" in str(exc) else 409 if "complete" in str(exc) else 502
+        raise HTTPException(status, str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(422, str(exc)) from exc
 
 @app.post("/api/analyze/local")
 def analyze_local(request: LocalRequest) -> dict:
