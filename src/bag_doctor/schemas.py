@@ -28,10 +28,17 @@ class BagSummary(BaseModel):
     end_time_ns: int
     total_messages: int
     topic_count: int
+    original_filename: str | None = None
+    metadata_available: bool = True
+    split_file_count: int = 1
+    warnings: list[str] = Field(default_factory=list)
+    analysis_capabilities: list[str] = Field(default_factory=lambda: [
+        "topic_inventory", "message_counts", "bag_duration", "median_topic_rate",
+        "maximum_inter_message_gap", "silence_window_detection",
+    ])
 
 
 class AnalysisResult(BaseModel):
     summary: BagSummary
     topics: list[TopicHealth]
     incidents: list[SilenceWindow]
-

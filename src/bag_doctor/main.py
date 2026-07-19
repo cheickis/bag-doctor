@@ -2,17 +2,26 @@
 
 from pathlib import Path
 
-from fastapi import FastAPI
+from fastapi import FastAPI, File, HTTPException, UploadFile, Request
+from pydantic import BaseModel
+from fastapi.responses import StreamingResponse
+from fastapi.encoders import jsonable_encoder
+import asyncio, json
 from fastapi.responses import FileResponse
 
 from .analyzer import analyze_bag
 from .schemas import AnalysisResult
+from .ingestion import InputValidationError, stage_upload
+from .jobs import create_job, get_job
 
 PACKAGE_ROOT = Path(__file__).parent
 DEMO_BAG = PACKAGE_ROOT / "data" / "failed_robot_demo"
 WEB_ROOT = PACKAGE_ROOT / "web"
 
 app = FastAPI(title="Bag Doctor", version="0.1.0")
+
+class LocalRequest(BaseModel):
+    path: str
 
 
 @app.get("/", include_in_schema=False)
@@ -24,8 +33,87 @@ def index() -> FileResponse:
 def analyze_demo() -> AnalysisResult:
     return analyze_bag(DEMO_BAG)
 
+@app.post("/api/analyze/local")
+def analyze_local(request: LocalRequest) -> dict:
+    path = Path(request.path).expanduser()
+    if not path.is_absolute() or not path.exists():
+        raise HTTPException(400, "Local bag path must be an existing absolute path")
+    if path.is_dir() and not ((path / "metadata.yaml").exists() and (list(path.glob("*.db3")) or list(path.glob("*.mcap")))):
+        raise HTTPException(400, "Unsupported local path: expected metadata.yaml and bag files")
+    if path.is_file() and path.suffix.lower() not in {".mcap", ".db3"}:
+        raise HTTPException(415, "Unsupported local path extension")
+    job = create_job(path)
+    return {"job_id": job.id, "state": job.state}
+
+@app.get("/api/analyze/jobs/{job_id}")
+def job_status(job_id: str) -> dict:
+    job = get_job(job_id)
+    if not job: raise HTTPException(404, "Unknown analysis job")
+    return job_payload(job, include_result=True)
+
+def job_payload(job, *, include_result: bool) -> dict:
+    """Shared, FastAPI-safe representation of a job."""
+    payload = {"job_id": job.id, "state": job.state, "stage": job.stage,
+        "processed_messages": job.processed_messages, "total_messages": job.total_messages,
+        "percent_complete": job.percent, "elapsed_seconds": job.elapsed_seconds,
+        "estimated_remaining_seconds": job.eta_seconds, "has_result": job.result is not None,
+        "error": job.error}
+    if include_result:
+        payload["result"] = jsonable_encoder(job.result) if job.result is not None else None
+    return payload
+
+@app.post("/api/analyze/jobs/{job_id}/cancel")
+def cancel_job(job_id: str) -> dict:
+    job = get_job(job_id)
+    if not job: raise HTTPException(404, "Unknown analysis job")
+    job.cancel.set(); job.state = "cancelled"
+    return {"job_id": job.id, "state": job.state}
+
+@app.get("/api/analyze/jobs/{job_id}/events")
+async def job_events(job_id: str, request: Request):
+    if not get_job(job_id): raise HTTPException(404, "Unknown analysis job")
+    async def events():
+        while True:
+            job = get_job(job_id)
+            if await request.is_disconnected():
+                return
+            event = "completed" if job.state == "completed" else "error" if job.state == "error" else "cancelled" if job.state == "cancelled" else "progress"
+            yield f"event: {event}\ndata: {json.dumps(job_payload(job, include_result=False), separators=(',', ':'))}\n\n"
+            if event != "progress":
+                return
+            await asyncio.sleep(.25)
+            yield ": keep-alive\n\n"
+    return StreamingResponse(events(), media_type="text/event-stream", headers={"Cache-Control":"no-cache", "Connection":"keep-alive", "X-Accel-Buffering":"no"})
+
+
+@app.post("/api/analyze/upload", response_model=AnalysisResult)
+async def analyze_upload(file: UploadFile = File(...)) -> AnalysisResult:
+    filename = file.filename or "upload"
+    suffix = Path(filename).suffix.lower()
+    if suffix not in {".mcap", ".db3", ".zip"}:
+        raise HTTPException(415, "Unsupported upload extension; use .mcap, .db3, or .zip")
+    import tempfile
+    with tempfile.NamedTemporaryFile(prefix="bag-doctor-upload-", suffix=suffix) as incoming:
+        total = 0
+        while chunk := await file.read(1024 * 1024):
+            total += len(chunk)
+            if total > 512 * 1024 * 1024:
+                raise HTTPException(413, "Upload exceeds maximum size of 512 MiB")
+            incoming.write(chunk)
+        incoming.flush()
+        try:
+            with stage_upload(Path(incoming.name), filename) as staged:
+                result = analyze_bag(staged.path)
+                result.summary.storage_format = staged.kind.value
+                result.summary.original_filename = staged.original_filename
+                result.summary.metadata_available = staged.metadata_available
+                result.summary.split_file_count = staged.split_file_count
+                result.summary.warnings = staged.warnings
+                return result
+        except (InputValidationError, ValueError, OSError) as exc:
+            raise HTTPException(400, str(exc)) from exc
+
 
 @app.get("/health", include_in_schema=False)
 def health() -> dict[str, str]:
     return {"status": "ok"}
-

@@ -58,3 +58,36 @@ tests/                # Analyzer and API tests
 ```
 
 This milestone intentionally contains no LLM integration, authentication, storage service, live ROS connection, RViz, or point-cloud visualization.
+
+## ROS 2 uploads
+
+ROS 1 commonly uses `.bag`. ROS 2 commonly uses an `.mcap` file or a bag directory containing `.db3` files plus `metadata.yaml`. The upload endpoint supports:
+
+- standalone `.mcap`
+- `.zip` archives containing one ROS 2 bag root with `metadata.yaml` and one or more `.db3` files (split bags supported)
+- standalone `.db3` as a convenience mode; a warning explains that metadata was not supplied
+
+Recommended ZIP structure:
+
+```text
+my-bag.zip
+└── my-bag/
+    ├── metadata.yaml
+    ├── my-bag_0.db3
+    └── my-bag_1.db3
+```
+
+Uploads are limited to 512 MiB. Archives reject traversal paths, symlinks, malformed content, missing metadata, missing database files, and ambiguous unrelated bag roots. Temporary staging files are removed after every analysis.
+
+## Large local bags (recommended)
+
+For 40 GB–250+ GB recordings, use local in-place analysis. Large bags are never uploaded or copied:
+
+```bash
+curl -X POST http://127.0.0.1:8000/api/analyze/local \
+  -H 'content-type: application/json' \
+  -d '{"path":"/absolute/path/to/bag-directory"}'
+uv run bag-doctor --bag /absolute/path/to/bag-directory
+```
+
+The API returns a job ID. Poll `/api/analyze/jobs/{job_id}`, cancel with `POST /api/analyze/jobs/{job_id}/cancel`, or subscribe to `/api/analyze/jobs/{job_id}/events` using Server-Sent Events. Local analysis opens source files read-only and keeps the 512 MiB upload convenience limit unchanged. No bag bytes leave the machine. Runtime and memory depend on storage indexes, message count, and filesystem throughput; timestamp analysis does not deserialize message payloads.

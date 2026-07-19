@@ -6,6 +6,7 @@ readme = "README.md"
 requires-python = ">=3.12,<3.13"
 dependencies = [
     "fastapi>=0.116,<1",
+    "python-multipart>=0.0.20,<1",
     "rosbags>=0.10,<1",
     "uvicorn[standard]>=0.35,<1",
 ]
@@ -20,10 +21,12 @@ dev = [
 requires = ["hatchling"]
 build-backend = "hatchling.build"
 
+[project.scripts]
+bag-doctor = "bag_doctor.cli:main"
+
 [tool.hatch.build.targets.wheel]
 packages = ["src/bag_doctor"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 addopts = "-q"
-

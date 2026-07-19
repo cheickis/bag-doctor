@@ -6,9 +6,8 @@ from collections import defaultdict
 from pathlib import Path
 from statistics import median
 
-from rosbags.rosbag2 import Reader
-
 from .schemas import AnalysisResult, BagSummary, SilenceWindow, TopicHealth
+from .ingestion.reader import BagReader
 
 NANOSECONDS = 1_000_000_000
 
@@ -36,7 +35,7 @@ def analyze_bag(
     first_timestamp: int | None = None
     last_timestamp: int | None = None
 
-    with Reader(path) as reader:
+    with BagReader(path) as reader:
         topic_types = {connection.topic: connection.msgtype for connection in reader.connections}
         storage_format = "mcap" if any(path.glob("*.mcap")) else "sqlite3"
 
@@ -102,4 +101,3 @@ def analyze_bag(
         topics=topics,
         incidents=sorted(incidents, key=lambda item: (item.start_seconds, item.topic)),
     )
-

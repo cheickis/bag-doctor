@@ -15,7 +15,7 @@ SCAN_SILENCE_START_SECONDS = 5
 SCAN_SILENCE_END_SECONDS = 9
 
 
-def generate_demo_bag(destination: Path) -> Path:
+def generate_demo_bag(destination: Path, *, storage_plugin: StoragePlugin = StoragePlugin.MCAP) -> Path:
     """Create a 14-second bag with a four-second mid-recording /scan outage."""
     destination = Path(destination)
     if destination.exists():
@@ -61,7 +61,7 @@ def generate_demo_bag(destination: Path) -> Path:
         )
         return TFMessage([transform])
 
-    with Writer(destination, version=9, storage_plugin=StoragePlugin.MCAP) as writer:
+    with Writer(destination, version=9, storage_plugin=storage_plugin) as writer:
         connections = {
             "/scan": writer.add_connection("/scan", "sensor_msgs/msg/LaserScan", typestore=typestore),
             "/odom": writer.add_connection("/odom", "nav_msgs/msg/Odometry", typestore=typestore),
@@ -88,4 +88,4 @@ def generate_demo_bag(destination: Path) -> Path:
 
 if __name__ == "__main__":
     generate_demo_bag(Path(__file__).parent / "data" / "failed_robot_demo")
-
+    generate_demo_bag(Path(__file__).parent / "data" / "failed_robot_sqlite_demo", storage_plugin=StoragePlugin.SQLITE3)
