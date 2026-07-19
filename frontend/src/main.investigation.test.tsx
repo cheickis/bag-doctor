@@ -15,8 +15,10 @@ describe("GPT-5.6 investigation and evidence", () => {
     await userEvent.click(screen.getByRole("button", { name: "Investigate with GPT-5.6" }));
     expect(await screen.findByText("A timing disruption is visible.")).toBeInTheDocument();
     expect(screen.getByText(/Possible scheduler delay/)).toBeInTheDocument();
-    expect(screen.getByText(/Timing measurements alone do not establish a physical root cause/)).toBeInTheDocument();
+    expect(screen.getAllByText(/Timing measurements alone do not establish a physical root cause/)).toHaveLength(2);
     const citation = screen.getByRole("button", { name: evidenceId }); await userEvent.click(citation);
+    expect(citation).not.toHaveClass("print-hidden");
+    expect(citation.closest("[data-report='bag-doctor-analysis']")).not.toBeNull();
     const target = document.getElementById(evidenceTargetId(evidenceId))!;
     expect(target).toHaveFocus(); expect(target).toHaveClass("selected");
   });

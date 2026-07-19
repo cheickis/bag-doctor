@@ -1,6 +1,7 @@
 import React, { FormEvent, useCallback, useEffect, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
 import { Activity, FileUp, Brain, Printer } from "lucide-react";
+import { Alert, Badge, Button, Card, CardContent, CardHeader, Table } from "./components/ui";
 import "./style.css";
 
 type JobState = "idle" | "starting" | "running" | "cancelling" | "completed" | "cancelled" | "failed";
@@ -41,15 +42,15 @@ function LocalProgress({ job, state, onCancel }: { job: Job | null; state: JobSt
     : state === "cancelling"
       ? "Bag Doctor is stopping at the next safe analysis checkpoint."
       : job?.stage || "Analyzing local ROS 2 bag";
-  return <section className="panel progress-shell" aria-live="polite" aria-atomic="true">
+  return <Card className="progress-shell print-hidden" aria-live="polite" aria-atomic="true">
     <h2>Local analysis: {state}</h2>
     {state === "cancelling" && <strong>Cancellation requested</strong>}
     <p>{message}</p>
     <p><strong>{job?.processed_messages ?? 0}</strong> processed messages{job?.total_messages == null ? ". Total message count is not yet known." : ` of ${job.total_messages}`}</p>
     {job?.percent_complete != null && <><progress max="100" value={job.percent_complete} aria-label="Analysis progress" /><span> {job.percent_complete}%</span></>}
     {job?.elapsed_seconds != null && <p>Elapsed: {job.elapsed_seconds.toFixed(1)}s{job.estimated_remaining_seconds == null ? "" : ` · ETA ${job.estimated_remaining_seconds.toFixed(1)}s`}</p>}
-    <button type="button" disabled={state === "cancelling" || !job?.job_id} onClick={onCancel}>Cancel analysis</button>
-  </section>;
+    <Button variant="danger" type="button" disabled={state === "cancelling" || !job?.job_id} onClick={onCancel}>Cancel analysis</Button>
+  </Card>;
 }
 
 export function AnalysisDashboard({ analysis, jobId }: { analysis: Analysis; jobId: string | null }) {
@@ -80,16 +81,17 @@ export function AnalysisDashboard({ analysis, jobId }: { analysis: Analysis; job
     setNotice(""); setSelectedEvidence(id); target.focus(); target.scrollIntoView?.({ block: "center" });
   };
 
-  return <section id="overview" data-testid="analysis-dashboard">
-    <div className="cards">{[["Duration", `${analysis.summary.duration_seconds}s`], ["Topics", topicCount], ["Messages", totalMessages], ["Incidents", incidentCount]].map(([label, value]) => <div className="card" key={String(label)}><span>{label}</span><strong>{value}</strong></div>)}</div>
-    <section id="topics" className="panel"><h2>Topics</h2><table><tbody>{analysis.topics.map(topic => <tr key={topic.topic}><td>{topic.topic}</td><td><b className="badge">{topic.timing_classification ?? "unknown"}</b></td><td>{topic.message_count}</td></tr>)}</tbody></table></section>
-    <section id="evidence" className="panel"><h2>Evidence</h2>{evidence.map(item => item.evidence_id && <article className={`evidence-card${selectedEvidence === item.evidence_id ? " selected" : ""}`} id={evidenceTargetId(item.evidence_id)} data-evidence-id={item.evidence_id} tabIndex={-1} key={item.evidence_id}><code>{item.evidence_id}</code><p>{item.topic} · {item.duration_seconds}s</p></article>)}</section>
-    <section id="gpt-5.6" className="panel"><h2><Brain /> GPT-5.6 Investigator</h2><p>Bounded deterministic evidence only. Timing measurements alone do not establish a physical root cause.</p>
-      <button type="button" disabled={!jobId || evidence.length === 0 || busy} onClick={investigate}>{busy ? "Investigating…" : "Investigate with GPT-5.6"}</button>
-      {notice && <p className="notice" role="status">{notice}</p>}
-      {investigation && <div><h3>{investigation.model}</h3><p>{investigation.summary}</p>{investigation.hypotheses?.map(h => <article className="hypothesis" key={h.rank}><div><h3>#{h.rank} {h.hypothesis}</h3><p>{h.reasoning}</p><div>{h.evidence_ids?.map(id => <button type="button" className="citation" onClick={() => navigateEvidence(id)} key={id}>{id}</button>)}</div></div></article>)}</div>}
-    </section>
-    <button className="secondary" type="button" onClick={() => print()}><Printer /> Print report</button>
+  return <section id="overview" className="report" aria-labelledby="report-title" data-testid="analysis-dashboard" data-report="bag-doctor-analysis">
+    <header className="report-header"><p className="eyebrow">Evidence-driven analysis report</p><h1 id="report-title">Bag Doctor Report</h1>{jobId && <p className="report-job">Completed job <code>{jobId}</code></p>}</header>
+    <div className="cards">{[["Duration", `${analysis.summary.duration_seconds}s`], ["Topics", topicCount], ["Messages", totalMessages], ["Incidents", incidentCount]].map(([label, value]) => <Card className="summary-card" key={String(label)}><CardContent><span>{label}</span><strong>{value}</strong></CardContent></Card>)}</div>
+    <Card id="topics" className="report-section"><CardHeader><h2>Topic classifications</h2></CardHeader><CardContent><Table><thead><tr><th scope="col">Topic</th><th scope="col">Classification</th><th scope="col">Messages</th></tr></thead><tbody>{analysis.topics.map(topic => <tr key={topic.topic}><td>{topic.topic}</td><td><Badge>{topic.timing_classification ?? "unknown"}</Badge></td><td>{topic.message_count}</td></tr>)}</tbody></Table></CardContent></Card>
+    <Card id="evidence" className="report-section"><CardHeader><h2>Ranked incidents and bounded evidence</h2><p>{evidence.length} evidence record{evidence.length === 1 ? "" : "s"} returned</p></CardHeader><CardContent>{evidence.map((item, index) => item.evidence_id && <article className={`evidence-card${selectedEvidence === item.evidence_id ? " selected" : ""}`} id={evidenceTargetId(item.evidence_id)} data-evidence-id={item.evidence_id} tabIndex={-1} key={item.evidence_id}><h3>Incident #{index + 1}</h3><code>{item.evidence_id}</code><p>{item.topic} · {item.duration_seconds}s</p></article>)}</CardContent></Card>
+    <Card id="gpt-5.6" className="report-section investigator-section"><CardHeader><h2><Brain /> GPT-5.6 Investigator</h2></CardHeader><CardContent><p className="safety-limitation">Bounded deterministic evidence only. Timing measurements alone do not establish a physical root cause.</p>
+      <Button className="print-hidden" type="button" disabled={!jobId || evidence.length === 0 || busy} onClick={investigate}>{busy ? "Investigating…" : "Investigate with GPT-5.6"}</Button>
+      {notice && <Alert className="print-hidden" variant="warning">{notice}</Alert>}
+      {investigation && <div className="investigation-result"><h3>{investigation.model}</h3><p>{investigation.summary}</p>{investigation.hypotheses?.map(h => <article className="hypothesis" key={h.rank}><div><h3>#{h.rank} {h.hypothesis}</h3><p>{h.reasoning}</p><div className="citations" aria-label={`Evidence citations for hypothesis ${h.rank}`}>{h.evidence_ids?.map(id => <Button type="button" variant="ghost" className="citation" onClick={() => navigateEvidence(id)} key={id}>{id}</Button>)}</div></div></article>)}{investigation.limitations && investigation.limitations.length > 0 && <section className="limitations" aria-labelledby="limitations-title"><h3 id="limitations-title">Limitations</h3><ul>{investigation.limitations.map((limitation, index) => <li key={index}>{limitation}</li>)}</ul></section>}</div>}
+    </CardContent></Card>
+    <Button className="print-hidden print-report" variant="secondary" type="button" onClick={() => print()}><Printer /> Print report</Button>
   </section>;
 }
 
@@ -167,13 +169,13 @@ export default function App() {
   let body: React.ReactNode;
   if (activeLocal) body = <LocalProgress job={job} state={status} onCancel={cancel} />;
   else if (analysis) body = <AnalysisDashboard analysis={analysis} jobId={job?.job_id ?? null} />;
-  else if (status === "cancelled") body = <section className="panel"><h2>Analysis cancelled</h2><p>Partial results were not cached.</p></section>;
-  else if (status === "failed") body = <section className="panel"><h2>Analysis failed</h2><p>The request ended without exposing internal details. Choose a workflow above to try again.</p></section>;
-  else body = <section className="empty"><Brain size={42} /><h2>Load a recording to begin</h2><button type="button" onClick={demo}>Analyze failed robot demo</button></section>;
+  else if (status === "cancelled") body = <Alert className="print-hidden" variant="warning"><h2>Analysis cancelled</h2><p>Partial results were not cached.</p></Alert>;
+  else if (status === "failed") body = <Alert className="print-hidden" variant="destructive"><h2>Analysis failed</h2><p>The request ended without exposing internal details. Choose a workflow above to try again.</p></Alert>;
+  else body = <section className="empty print-hidden"><Brain size={42} /><h2>Load a recording to begin</h2><Button type="button" onClick={demo}>Analyze failed robot demo</Button></section>;
 
-  return <div className="app"><aside><div className="brand"><Activity /> BAG DOCTOR</div><p className="muted">ROS 2 Evidence-Driven Failure Investigator</p><a href="#overview">Overview</a><a href="#topics">Topics</a><a href="#evidence">Evidence</a><a href="#gpt-5.6">GPT-5.6 Investigator</a></aside><main><header><h1>Bag Doctor</h1><div className="actions"><button type="button" onClick={demo}>Run bundled demo</button><button className="secondary" type="button" onClick={() => file.current?.click()}><FileUp /> Upload bag</button><input ref={file} hidden type="file" aria-label="Upload bag file" accept=".mcap,.db3,.zip" onChange={event => event.target.files?.[0] && void upload(event.target.files[0])} /></div></header>
-    <form className="local-launcher" onSubmit={submitLocal}><label htmlFor="local-path">Local bag path</label><input id="local-path" value={localPath} onChange={event => setLocalPath(event.target.value)} placeholder="/absolute/path/to/bag-directory" /><button type="submit">Analyze local path</button></form>
-    {error && <div className="alert" role="alert">{error}</div>}{body}</main></div>;
+  return <div className="app"><aside className="print-hidden"><div className="brand"><Activity /> BAG DOCTOR</div><p className="muted">ROS 2 Evidence-Driven Failure Investigator</p><nav aria-label="Report sections"><a href="#overview">Overview</a><a href="#topics">Topics</a><a href="#evidence">Evidence</a><a href="#gpt-5.6">GPT-5.6 Investigator</a></nav></aside><main><header className="app-header print-hidden"><h1>Bag Doctor</h1><div className="actions"><Button type="button" onClick={demo}>Run bundled demo</Button><Button variant="secondary" type="button" onClick={() => file.current?.click()}><FileUp /> Upload bag</Button><input ref={file} hidden type="file" aria-label="Upload bag file" accept=".mcap,.db3,.zip" onChange={event => event.target.files?.[0] && void upload(event.target.files[0])} /></div></header>
+    <form className="local-launcher print-hidden" onSubmit={submitLocal}><label htmlFor="local-path">Local bag path</label><input id="local-path" value={localPath} onChange={event => setLocalPath(event.target.value)} placeholder="/absolute/path/to/bag-directory" /><Button type="submit">Analyze local path</Button></form>
+    {error && <Alert className="print-hidden" variant="destructive" role="alert">{error}</Alert>}{body}</main></div>;
 }
 
 const root = document.getElementById("root");

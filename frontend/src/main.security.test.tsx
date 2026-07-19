@@ -1,6 +1,7 @@
 import { render, screen } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 import mainSource from "./main.tsx?raw";
+import uiSource from "./components/ui.tsx?raw";
 import { AnalysisDashboard, type Analysis } from "./main";
 
 describe("frontend security", () => {
@@ -11,6 +12,6 @@ describe("frontend security", () => {
     expect(screen.getByText(payload)).toBeInTheDocument(); expect(document.querySelector("script")).toBeNull(); expect(document.querySelector("img")).toBeNull();
   });
   it("does not use raw HTML injection in production React source", () => {
-    expect(mainSource).not.toContain("dangerouslySetInnerHTML");
+    expect(`${mainSource}\n${uiSource}`).not.toContain("dangerouslySetInnerHTML");
   });
 });

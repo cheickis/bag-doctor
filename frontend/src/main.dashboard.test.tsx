@@ -14,4 +14,16 @@ describe("shared dashboard", () => {
     expect(screen.getAllByText("6")).toHaveLength(2); expect(screen.getAllByText("1")).toHaveLength(2);
     expect(screen.getByRole("button", { name: "Investigate with GPT-5.6" })).toBeDisabled();
   });
+  it("provides a stable printable report structure without interactive controls", () => {
+    render(<AnalysisDashboard analysis={analysis} jobId="completed-job" />);
+    const report = screen.getByTestId("analysis-dashboard");
+    expect(report).toHaveAttribute("data-report", "bag-doctor-analysis");
+    expect(report).toHaveAccessibleName("Bag Doctor Report");
+    expect(screen.getByText("completed-job")).toBeInTheDocument();
+    expect(screen.getByRole("columnheader", { name: "Topic" })).toBeInTheDocument();
+    expect(screen.getByRole("columnheader", { name: "Classification" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Investigate with GPT-5.6" })).toHaveClass("print-hidden");
+    expect(screen.getByRole("button", { name: "Print report" })).toHaveClass("print-hidden");
+    expect(screen.getByText(/Timing measurements alone do not establish a physical root cause/)).toBeInTheDocument();
+  });
 });
