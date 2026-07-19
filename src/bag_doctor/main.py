@@ -1,6 +1,7 @@
 """FastAPI application for the Bag Doctor demo."""
 
 from pathlib import Path
+import secrets
 
 from fastapi import FastAPI, File, HTTPException, UploadFile, Request, Query
 from pydantic import BaseModel
@@ -13,7 +14,7 @@ from fastapi.responses import FileResponse
 from .analyzer import analyze_bag
 from .schemas import AnalysisResult
 from .ingestion import InputValidationError, stage_upload
-from .jobs import create_job, get_job, request_cancel
+from .jobs import create_job, get_job, request_cancel, Job, _jobs, _lock
 from .investigator import investigate, InvestigationResult
 
 PACKAGE_ROOT = Path(__file__).parent
@@ -44,6 +45,23 @@ def index() -> FileResponse:
 @app.get("/api/analyze/demo", response_model=AnalysisResult)
 def analyze_demo() -> AnalysisResult:
     return analyze_bag(DEMO_BAG)
+
+@app.get("/api/analyze/demo/job")
+def analyze_demo_job() -> dict:
+    try:
+        result = analyze_bag(DEMO_BAG)
+    except Exception as exc:
+        raise HTTPException(500, "Demo analysis could not be completed") from exc
+    job = Job(
+        f"demo-{secrets.token_hex(8)}", DEMO_BAG, state="completed", stage="completed",
+        processed_messages=result.summary.total_messages,
+        total_messages=result.summary.total_messages, percent=100, result=result,
+    )
+    with _lock:
+        while job.id in _jobs:
+            job.id = f"demo-{secrets.token_hex(8)}"
+        _jobs[job.id] = job
+    return job_payload(job, include_result=False)
 
 @app.post("/api/analyze/jobs/{job_id}/investigate", response_model=InvestigationResult)
 def investigate_job(job_id: str, request: InvestigationRequest) -> InvestigationResult:
