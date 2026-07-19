@@ -12,7 +12,7 @@ from fastapi.responses import FileResponse
 from .analyzer import analyze_bag
 from .schemas import AnalysisResult
 from .ingestion import InputValidationError, stage_upload
-from .jobs import create_job, get_job
+from .jobs import create_job, get_job, request_cancel
 
 PACKAGE_ROOT = Path(__file__).parent
 DEMO_BAG = PACKAGE_ROOT / "data" / "failed_robot_demo"
@@ -64,9 +64,8 @@ def job_payload(job, *, include_result: bool) -> dict:
 
 @app.post("/api/analyze/jobs/{job_id}/cancel")
 def cancel_job(job_id: str) -> dict:
-    job = get_job(job_id)
+    job = request_cancel(job_id)
     if not job: raise HTTPException(404, "Unknown analysis job")
-    job.cancel.set(); job.state = "cancelled"
     return {"job_id": job.id, "state": job.state}
 
 @app.get("/api/analyze/jobs/{job_id}/events")
@@ -77,7 +76,7 @@ async def job_events(job_id: str, request: Request):
             job = get_job(job_id)
             if await request.is_disconnected():
                 return
-            event = "completed" if job.state == "completed" else "error" if job.state == "error" else "cancelled" if job.state == "cancelled" else "progress"
+            event = "completed" if job.state == "completed" else "job-error" if job.state == "error" else "cancelled" if job.state == "cancelled" else "progress"
             yield f"event: {event}\ndata: {json.dumps(job_payload(job, include_result=False), separators=(',', ':'))}\n\n"
             if event != "progress":
                 return

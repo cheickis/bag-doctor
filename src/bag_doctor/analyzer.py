@@ -5,11 +5,16 @@ from __future__ import annotations
 from collections import defaultdict
 from pathlib import Path
 from statistics import median
+from collections.abc import Callable
 
 from .schemas import AnalysisResult, BagSummary, SilenceWindow, TopicHealth
 from .ingestion.reader import open_bag_source
 
 NANOSECONDS = 1_000_000_000
+
+
+class AnalysisCancelled(Exception):
+    """Raised when an active bag analysis is cooperatively cancelled."""
 
 
 def _seconds(value_ns: int) -> float:
@@ -21,6 +26,7 @@ def analyze_bag(
     *,
     silence_multiplier: float = 5.0,
     minimum_silence_seconds: float = 1.0,
+    cancel_requested: Callable[[], bool] | None = None,
 ) -> AnalysisResult:
     """Analyze connection metadata and timestamps without decoding message bodies.
 
@@ -28,6 +34,8 @@ def analyze_bag(
     decoded messages and is sufficient for all metrics in this vertical slice.
     """
     path = Path(path)
+    if cancel_requested and cancel_requested():
+        raise AnalysisCancelled()
     deltas: dict[str, list[int]] = defaultdict(list)
     gaps: dict[str, list[tuple[int, int]]] = defaultdict(list)
     counts: dict[str, int] = defaultdict(int)
@@ -40,6 +48,8 @@ def analyze_bag(
         topic_types = dict(source.topic_types)
         storage_format = source.storage_format
         for record in source.messages():
+            if cancel_requested and cancel_requested():
+                raise AnalysisCancelled()
             topic = record.topic
             timestamp = record.timestamp_ns
             counts[topic] += 1
@@ -56,6 +66,8 @@ def analyze_bag(
 
     if first_timestamp is None or last_timestamp is None:
         raise ValueError(f"Bag contains no messages: {path}")
+    if cancel_requested and cancel_requested():
+        raise AnalysisCancelled()
 
     topics: list[TopicHealth] = []
     incidents: list[SilenceWindow] = []
@@ -92,6 +104,8 @@ def analyze_bag(
             )
         )
 
+    if cancel_requested and cancel_requested():
+        raise AnalysisCancelled()
     return AnalysisResult(
         summary=BagSummary(
             bag_name=path.name,
