@@ -34,6 +34,27 @@ PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 uv run pytest
 
 Disabling third-party pytest plugin auto-loading keeps the test environment independent from any globally sourced ROS installation. The project's own tests do not require external pytest plugins.
 
+## Optional live investigator validation
+
+The primary hackathon demonstration path is the ChatGPT-authenticated Codex CLI with GPT-5.6 Terra:
+
+```bash
+uv run python scripts/smoke_test_codex_investigator.py
+```
+
+This path does not use `OPENAI_API_KEY` and does not require paid OpenAI API credits. The smaller `scripts/probe_codex_structured_output.py` checks only the Codex structured-output transport.
+
+The Responses API smoke test is an optional provider validation and is not required for judges or for the main project workflow:
+
+```bash
+# Load OPENAI_API_KEY from your secret manager or a secure shell prompt first.
+uv run python scripts/smoke_test_investigator.py
+```
+
+It requires an OpenAI API account with available billing or credits and may incur API charges. The script analyzes the bundled deterministic Demo, exercises the existing bounded-evidence investigator, and validates evidence ownership and the timing-only physical-root-cause limitation. It does not store or print API responses, prompts, transcripts, credentials, authentication details, or provider errors.
+
+Exit status `0` means validation passed, `1` means the request or returned result failed safely, and `2` means Responses API configuration is missing. Do not place an API key directly in shell history.
+
 ## Regenerate the bundled bag
 
 The generated MCAP fixture and its rosbag2 metadata are committed under `src/bag_doctor/data/failed_robot_demo`. To reproduce it deterministically:
