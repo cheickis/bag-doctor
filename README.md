@@ -1,114 +1,209 @@
 # Bag Doctor
 
-Bag Doctor turns ROS 2 bag recordings into deterministic, evidence-backed failure investigations. This first vertical slice inventories topics and measures timestamp health from a bundled synthetic MCAP recording—without requiring ROS.
+Bag Doctor is an evidence-driven failure investigator for ROS 2 bag recordings. It performs deterministic, timestamp-only analysis first, ranks timing incidents, assigns stable evidence IDs, and gives GPT-5.6 only bounded evidence context from the completed analysis. The result is a structured set of evidence-cited hypotheses—not a claim that a physical cause has been proven.
 
-## What the demo contains
+> **Safety boundary:** Timing measurements alone do not establish a physical root cause.
 
-The 14-second fixture contains valid ROS 2 messages on `/scan` (~10 Hz), `/odom` (~30 Hz), and `/tf` (~10 Hz). `/scan` stops publishing between approximately 5 and 9 seconds; the other topics continue normally.
+## Judge quick start
 
-The analyzer reports topic types, counts, bag duration, median rates, maximum inter-message gaps, and silence windows. It reads raw message timestamps and connection metadata, and does not deserialize payloads during analysis.
+Prerequisites: Python 3.12, [uv](https://docs.astral.sh/uv/), a modern browser, and a ChatGPT-authenticated Codex CLI session for the GPT-5.6 Terra step. The project is currently verified on Linux; no other operating-system support is claimed.
 
-## Setup
-
-Install [uv](https://docs.astral.sh/uv/), then from the repository root run:
+From the repository root:
 
 ```bash
 uv sync
+uv run uvicorn bag_doctor.main:app
 ```
 
-`uv` reads `.python-version`, installs Python 3.12 if necessary, and creates `.venv` with all runtime and test dependencies.
+Then:
 
-## Run
+1. Open <http://127.0.0.1:8000> in a local browser.
+2. Click **Run bundled demo**.
+3. Inspect the deterministic summary, ranked timing incidents, and bounded evidence records.
+4. Click **Investigate with GPT-5.6**.
+5. Click an evidence citation in a hypothesis to navigate back to its deterministic evidence card.
+
+The bundled demo is the fastest judge and video workflow. It is synthetic and intentionally contains useful failure evidence: valid ROS 2 messages on `/scan`, `/odom`, and `/tf`, with `/scan` silent for roughly four seconds while the other topics continue.
+
+## What happens under the hood
+
+```text
+ROS 2 bag
+  → bounded-memory deterministic analysis
+  → ranked timing incidents
+  → stable evidence IDs
+  → bounded evidence context
+  → GPT-5.6
+  → structured, evidence-cited hypotheses
+```
+
+The analyzer reads message timestamps and connection metadata without deserializing message payloads. It reports topic inventory, bag duration, message counts, median rates, maximum gaps, timing classifications, and bounded silence-window evidence. Bag Doctor does not prove root causes, repair bags, create corrected binary bags, inspect malformed message payloads, or guarantee repair commands. Raw message telemetry is not sent to GPT-5.6.
+
+## GPT-5.6 Investigator
+
+### Primary judge path: Codex CLI
+
+The application uses the ChatGPT-authenticated Codex CLI and model `gpt-5.6-terra`. Authenticate before launching Bag Doctor:
 
 ```bash
-uv run uvicorn bag_doctor.main:app --reload
+codex login
+codex login status
 ```
 
-Open <http://127.0.0.1:8000> and select **Analyze Failed Robot Demo**. The structured endpoint is available directly at <http://127.0.0.1:8000/api/analyze/demo>, and FastAPI's generated API documentation is at <http://127.0.0.1:8000/docs>.
+No `OPENAI_API_KEY` is required for this path. If one is already set, unset it when demonstrating the primary Codex CLI provider because the current provider selection uses the Responses API when that variable is present.
 
-## Test
-
-```bash
-PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 uv run pytest
-```
-
-Disabling third-party pytest plugin auto-loading keeps the test environment independent from any globally sourced ROS installation. The project's own tests do not require external pytest plugins.
-
-## Optional live investigator validation
-
-The primary hackathon demonstration path is the ChatGPT-authenticated Codex CLI with GPT-5.6 Terra:
+The server completes deterministic analysis before invoking GPT-5.6. It then makes one bounded, structured Codex invocation containing only the analysis summary, topic measurements, and bounded evidence—not raw bag telemetry. The server controls model/question metadata and validates the structured response and every cited ID against evidence owned by the completed process-local job. The prompt requires the timing-only physical-root-cause limitation; the bundled validation command checks the structured result and evidence citations:
 
 ```bash
 uv run python scripts/smoke_test_codex_investigator.py
 ```
 
-This path does not use `OPENAI_API_KEY` and does not require paid OpenAI API credits. The smaller `scripts/probe_codex_structured_output.py` checks only the Codex structured-output transport.
+### Optional provider: OpenAI Responses API
 
-The Responses API smoke test is an optional provider validation and is not required for judges or for the main project workflow:
+The OpenAI Responses API is an optional validation path, not part of the primary judge workflow. It requires an independently billed API account and `OPENAI_API_KEY`, and may incur charges:
 
 ```bash
-# Load OPENAI_API_KEY from your secret manager or a secure shell prompt first.
+# Load OPENAI_API_KEY securely first; do not paste it into shell history.
 uv run python scripts/smoke_test_investigator.py
 ```
 
-It requires an OpenAI API account with available billing or credits and may incur API charges. The script analyzes the bundled deterministic Demo, exercises the existing bounded-evidence investigator, and validates evidence ownership and the timing-only physical-root-cause limitation. It does not store or print API responses, prompts, transcripts, credentials, authentication details, or provider errors.
+This provider uses bounded evidence tools, validates cited evidence ownership, and its smoke test validates that the response includes the timing-only safety limitation. Exit code `0` means validation passed, `1` means the request or result failed safely, and `2` means provider configuration is missing.
 
-Exit status `0` means validation passed, `1` means the request or returned result failed safely, and `2` means Responses API configuration is missing. Do not place an API key directly in shell history.
+## Example judge walkthrough
 
-## Regenerate the bundled bag
+This takes only a few minutes:
 
-The generated MCAP fixture and its rosbag2 metadata are committed under `src/bag_doctor/data/failed_robot_demo`. To reproduce it deterministically:
+1. Launch the server and open the local URL.
+2. Run the bundled demo.
+3. Review the recording summary and topic classifications.
+4. Open the ranked incidents and bounded evidence.
+5. Run the GPT-5.6 Investigator.
+6. Click a cited evidence ID to return to that evidence card.
+7. Open **Report** in the navigation and use **Print report** or browser print preview.
 
-```bash
-uv run python -m bag_doctor.demo
-```
+## Supported inputs
 
-Then rerun the tests. Generation uses `rosbags` message definitions and produces valid `sensor_msgs/msg/LaserScan`, `nav_msgs/msg/Odometry`, and `tf2_msgs/msg/TFMessage` payloads.
+### Browser Upload
 
-## Project layout
+The browser accepts:
 
-```text
-src/bag_doctor/
-├── analyzer.py       # Timestamp-only deterministic measurements
-├── demo.py           # Synthetic MCAP generator
-├── main.py           # FastAPI routes
-├── schemas.py        # Pydantic response models
-├── data/             # Bundled generated rosbag2 MCAP
-└── web/index.html    # Minimal browser interface
-tests/                # Analyzer and API tests
-```
+- a standalone `.mcap`;
+- a standalone `.db3`;
+- a `.zip` containing one complete split SQLite ROS 2 bag: `metadata.yaml` and every `.db3` segment.
 
-This milestone intentionally contains no LLM integration, authentication, storage service, live ROS connection, RViz, or point-cloud visualization.
+A standalone `.db3` does not require separately selecting `metadata.yaml`. The backend creates a temporary staging workspace and reads the necessary topic metadata directly from the SQLite bag tables. Browser uploads are limited to 512 MiB and temporary files are removed after analysis.
 
-## ROS 2 uploads
+For any split bag, the archive must keep `metadata.yaml` together with every segment. The current ZIP validator supports `.db3` segments; an MCAP-only split ZIP is not currently accepted, so use a standalone `.mcap` or the Local path workflow for a complete MCAP directory. Archives reject traversal paths, symlinks, malformed content, incomplete SQLite bags, and multiple unrelated bag roots.
 
-ROS 1 commonly uses `.bag`. ROS 2 commonly uses an `.mcap` file or a bag directory containing `.db3` files plus `metadata.yaml`. The upload endpoint supports:
+**Current limitation:** direct Upload returns an analysis result but does not register a completed job ID. GPT-5.6 investigation is therefore unavailable for direct Upload results.
 
-- standalone `.mcap`
-- `.zip` archives containing one ROS 2 bag root with `metadata.yaml` and one or more `.db3` files (split bags supported)
-- standalone `.db3` as a convenience mode; a warning explains that metadata was not supplied
+### Local path
 
-Recommended ZIP structure:
-
-```text
-my-bag.zip
-└── my-bag/
-    ├── metadata.yaml
-    ├── my-bag_0.db3
-    └── my-bag_1.db3
-```
-
-Uploads are limited to 512 MiB. Archives reject traversal paths, symlinks, malformed content, missing metadata, missing database files, and ambiguous unrelated bag roots. Temporary staging files are removed after every analysis.
-
-## Large local bags (recommended)
-
-For 40 GB–250+ GB recordings, use local in-place analysis. Large bags are never uploaded or copied:
+Local path analyzes a complete bag directory in place and is the recommended workflow for large recordings. The directory should contain `metadata.yaml` and all `.db3` or `.mcap` segments, and the server process must have filesystem access to its absolute path. Enter that path in the dashboard, or use:
 
 ```bash
 curl -X POST http://127.0.0.1:8000/api/analyze/local \
   -H 'content-type: application/json' \
   -d '{"path":"/absolute/path/to/bag-directory"}'
-uv run bag-doctor --bag /absolute/path/to/bag-directory
 ```
 
-The API returns a job ID. Poll `/api/analyze/jobs/{job_id}`, cancel with `POST /api/analyze/jobs/{job_id}/cancel`, or subscribe to `/api/analyze/jobs/{job_id}/events` using Server-Sent Events. Local analysis opens source files read-only and keeps the 512 MiB upload convenience limit unchanged. No bag bytes leave the machine. Runtime and memory depend on storage indexes, message count, and filesystem throughput; timestamp analysis does not deserialize message payloads.
+The API returns a job ID for status, evidence, cancellation, and investigation. A real approximately 37.5 GiB ROS 2 bag containing 744,684 messages was successfully analyzed through this Local workflow. It produced six leading-boundary timing findings, and six bounded evidence records enabled investigation with GPT-5.6 Terra. That run did **not** validate the unrelated synthetic 7.9-to-13.9-second trailing-boundary case.
+
+### Bundled Demo
+
+The committed synthetic MCAP fixture lives under `src/bag_doctor/data/failed_robot_demo/`. It requires no external ROS installation and creates a registered completed job, so the full deterministic-analysis-to-investigator workflow is available.
+
+To regenerate it during development:
+
+```bash
+uv run python -m bag_doctor.demo
+```
+
+## Architecture and safeguards
+
+- A temporary SQLite workspace stores timestamp gaps on disk so analysis memory stays bounded rather than retaining decoded messages.
+- Results cap per-topic silence windows and globally ranked incidents; evidence passed to GPT-5.6 is bounded.
+- Evidence IDs are deterministic hashes of the bag path and timing record, and citations must belong to the requested job.
+- Jobs, cached results, and evidence live in a process-local registry. Restarting the server ends their lifetime.
+- Local analysis supports cooperative cancellation at safe checkpoints; cancelled partial results are not published.
+- Progress, elapsed time, and ETA come from processed and known total message counts. Unknown totals do not fabricate percentages or ETAs.
+- Known event-driven topics such as `/parameter_events` and `/rosout` are excluded from inferred periodic silence detection.
+- Silence detection covers internal gaps and leading/trailing recording boundaries.
+- Analyzer callers can provide per-topic classifications, expected rates, and timing thresholds. The current browser UI does not expose those advanced settings.
+
+## API summary
+
+| Method | Route | Purpose |
+|---|---|---|
+| `GET` | `/` | Committed React application |
+| `GET` | `/api/analyze/demo` | Direct deterministic demo result |
+| `GET` | `/api/analyze/demo/job` | Analyze demo and register a completed job |
+| `POST` | `/api/analyze/upload` | Analyze a supported browser upload directly |
+| `POST` | `/api/analyze/local` | Start a process-local analysis job |
+| `GET` | `/api/analyze/jobs/{job_id}` | Read job progress and completed result |
+| `GET` | `/api/analyze/jobs/{job_id}/events` | Stream progress and terminal state with SSE |
+| `POST` | `/api/analyze/jobs/{job_id}/cancel` | Request cooperative cancellation |
+| `GET` | `/api/analyze/jobs/{job_id}/evidence` | Page/filter bounded job evidence |
+| `GET` | `/api/analyze/jobs/{job_id}/evidence/{evidence_id}` | Read one job-owned evidence record |
+| `POST` | `/api/analyze/jobs/{job_id}/investigate` | Run the bounded GPT-5.6 investigator |
+| `GET` | `/health` | Process health check |
+
+Interactive FastAPI documentation is available at <http://127.0.0.1:8000/docs>.
+
+## Tests
+
+```bash
+PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 uv run pytest
+```
+
+Disabling third-party pytest plugin auto-loading keeps tests independent from globally sourced ROS installations. Tests do not require a live ROS installation or paid API call.
+
+## Frontend assets and optional rebuild
+
+Committed React production assets are included under `src/bag_doctor/web/dist/`; judges do not need Node.js to install or run Bag Doctor. The legacy frontend source remains in the repository but is not served at runtime.
+
+Frontend rebuilding is optional. No Node version is declared by this project, so use a Node/npm environment compatible with the locked dependencies:
+
+```bash
+cd frontend
+npm ci
+npm run build
+```
+
+## How Codex supported development
+
+Codex was used as a development collaborator to implement and review narrow milestones, add tests, inspect diffs, validate frontend and backend behavior, verify analysis against a real ROS 2 bag, and maintain frequent, narrowly scoped commits. This does not mean Codex independently built the entire project. A Codex `/feedback` Session ID is included in the Devpost submission for reviewer context.
+
+## Troubleshooting
+
+**Codex CLI is not authenticated**
+
+Run `codex login`, confirm with `codex login status`, and restart the investigation. The primary path uses ChatGPT authentication, not `OPENAI_API_KEY`.
+
+**Port 8000 is already in use**
+
+Launch on another port, for example `uv run uvicorn bag_doctor.main:app --port 8001`, then open <http://127.0.0.1:8001>.
+
+**No bounded evidence**
+
+No bounded evidence is available for this recording. GPT-5.6 only investigates evidence produced by deterministic analysis. Zero bounded evidence is not proof that a bag is healthy; it only means no finding met the implemented classification, threshold, and result-bound rules.
+
+**Direct Upload investigator unavailable**
+
+This is expected: direct Upload results do not currently create registered completed job IDs. Use the bundled Demo or Local path workflow for GPT-5.6 investigation.
+
+**Incomplete split bag ZIP**
+
+Include one `metadata.yaml` and every `.db3` segment under a single bag root. Split MCAP ZIPs are not currently accepted; use a standalone `.mcap` or Local path.
+
+**Local path inaccessible**
+
+Use an existing absolute bag path. Ensure the server process can read the directory, `metadata.yaml`, and every segment.
+
+**A job or evidence disappeared after restart**
+
+Jobs and evidence are process-local and intentionally ephemeral. Run the Demo or Local analysis again after restarting the server.
+
+## License
+
+[MIT](LICENSE)
