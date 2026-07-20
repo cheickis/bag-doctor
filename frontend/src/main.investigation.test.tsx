@@ -12,6 +12,7 @@ describe("GPT-5.6 investigation and evidence", () => {
 
   it("renders a successful investigation and navigates valid citations", async () => {
     fetchMock.mockImplementationOnce(() => response(investigation)); render(<AnalysisDashboard analysis={analysis} jobId="completed-1" />);
+    expect(screen.getByRole("button", { name: "Investigate with GPT-5.6" })).toBeEnabled();
     await userEvent.click(screen.getByRole("button", { name: "Investigate with GPT-5.6" }));
     expect(await screen.findByText("A timing disruption is visible.")).toBeInTheDocument();
     expect(screen.getByText(/Possible scheduler delay/)).toBeInTheDocument();
@@ -21,6 +22,30 @@ describe("GPT-5.6 investigation and evidence", () => {
     expect(citation.closest("[data-report='bag-doctor-analysis']")).not.toBeNull();
     const target = document.getElementById(evidenceTargetId(evidenceId))!;
     expect(target).toHaveFocus(); expect(target).toHaveClass("selected");
+    expect(screen.getByText("Investigation completed.")).toBeInTheDocument();
+  });
+
+  it("distinguishes missing job IDs and completed jobs with zero bounded evidence", () => {
+    const noEvidence: Analysis = { ...analysis, topics: analysis.topics.map(topic => ({ ...topic, silence_windows: [] })), incidents: [], incident_count: 0 };
+    const first = render(<AnalysisDashboard analysis={analysis} jobId={null} />);
+    expect(screen.getByRole("button", { name: "Investigate with GPT-5.6" })).toBeDisabled();
+    expect(screen.getByText(/direct Upload results do not have a registered completed analysis job/i)).toBeInTheDocument();
+    expect(screen.queryByText("No bounded evidence is available for this recording.")).not.toBeInTheDocument();
+    first.unmount();
+
+    render(<AnalysisDashboard analysis={noEvidence} jobId="completed-empty" />);
+    expect(screen.getByRole("button", { name: "Investigate with GPT-5.6" })).toBeDisabled();
+    expect(screen.getByText("No bounded evidence is available for this recording.")).toBeInTheDocument();
+    expect(screen.getByText("GPT-5.6 only investigates evidence produced by deterministic analysis.")).toBeInTheDocument();
+    expect(document.body).not.toHaveTextContent(/healthy/i);
+  });
+
+  it("disables investigation while a request is running", async () => {
+    fetchMock.mockImplementationOnce(() => new Promise<Response>(() => undefined));
+    render(<AnalysisDashboard analysis={analysis} jobId="completed-1" />);
+    await userEvent.click(screen.getByRole("button", { name: "Investigate with GPT-5.6" }));
+    expect(screen.getByRole("button", { name: "Investigating…" })).toBeDisabled();
+    expect(screen.getByText("Investigation is currently running.")).toBeInTheDocument();
   });
 
   it("reports citations outside bounded evidence as unavailable", async () => {

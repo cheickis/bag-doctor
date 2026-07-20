@@ -53,6 +53,18 @@ function LocalProgress({ job, state, onCancel }: { job: Job | null; state: JobSt
   </Card>;
 }
 
+function InvestigatorUnavailable({ analysisPending }: { analysisPending: boolean }) {
+  return <Card id="gpt-5.6" className="investigator-section print-hidden">
+    <CardHeader><h2><Brain /> GPT-5.6 Investigator</h2></CardHeader>
+    <CardContent>
+      <Button type="button" disabled>Investigate with GPT-5.6</Button>
+      <Alert variant="warning">{analysisPending
+        ? "Analysis is still running. GPT-5.6 investigation will be available after deterministic analysis completes."
+        : "Complete deterministic analysis before GPT-5.6 investigation is available."}</Alert>
+    </CardContent>
+  </Card>;
+}
+
 export function AnalysisDashboard({ analysis, jobId }: { analysis: Analysis; jobId: string | null }) {
   const [investigation, setInvestigation] = useState<Investigation | null>(null);
   const [busy, setBusy] = useState(false);
@@ -61,7 +73,8 @@ export function AnalysisDashboard({ analysis, jobId }: { analysis: Analysis; job
   const totalMessages = analysis.summary.total_messages ?? analysis.topics.reduce((sum, topic) => sum + topic.message_count, 0);
   const topicCount = analysis.summary.topic_count ?? analysis.topics.length;
   const incidentCount = analysis.incident_count ?? analysis.incidents?.length ?? 0;
-  const evidence = analysis.incidents ?? [];
+  const evidence = [...analysis.topics.flatMap(topic => topic.silence_windows ?? []), ...(analysis.incidents ?? [])]
+    .filter((item, index, items) => item.evidence_id && items.findIndex(candidate => candidate.evidence_id === item.evidence_id) === index);
 
   const investigate = async () => {
     if (!jobId || evidence.length === 0) return;
@@ -88,8 +101,12 @@ export function AnalysisDashboard({ analysis, jobId }: { analysis: Analysis; job
     <Card id="evidence" className="report-section"><CardHeader><h2>Ranked incidents and bounded evidence</h2><p>{evidence.length} evidence record{evidence.length === 1 ? "" : "s"} returned</p></CardHeader><CardContent>{evidence.map((item, index) => item.evidence_id && <article className={`evidence-card${selectedEvidence === item.evidence_id ? " selected" : ""}`} id={evidenceTargetId(item.evidence_id)} data-evidence-id={item.evidence_id} tabIndex={-1} key={item.evidence_id}><h3>Incident #{index + 1}</h3><code>{item.evidence_id}</code><p>{item.topic} · {item.duration_seconds}s</p></article>)}</CardContent></Card>
     <Card id="gpt-5.6" className="report-section investigator-section"><CardHeader><h2><Brain /> GPT-5.6 Investigator</h2></CardHeader><CardContent><p className="safety-limitation">Bounded deterministic evidence only. Timing measurements alone do not establish a physical root cause.</p>
       <Button className="print-hidden" type="button" disabled={!jobId || evidence.length === 0 || busy} onClick={investigate}>{busy ? "Investigating…" : "Investigate with GPT-5.6"}</Button>
+      {!jobId && <Alert className="print-hidden" variant="warning">Investigation is unavailable because direct Upload results do not have a registered completed analysis job.</Alert>}
+      {evidence.length === 0 && <Alert variant="warning"><p>No bounded evidence is available for this recording.</p><p>GPT-5.6 only investigates evidence produced by deterministic analysis.</p></Alert>}
+      {jobId && evidence.length > 0 && !busy && !investigation && !notice && <Alert className="print-hidden">{evidence.length} bounded evidence record{evidence.length === 1 ? " is" : "s are"} available for investigation.</Alert>}
+      {busy && <Alert className="print-hidden" aria-live="polite">Investigation is currently running.</Alert>}
       {notice && <Alert className="print-hidden" variant="warning">{notice}</Alert>}
-      {investigation && <div className="investigation-result"><h3>{investigation.model}</h3><p>{investigation.summary}</p>{investigation.hypotheses?.map(h => <article className="hypothesis" key={h.rank}><div><h3>#{h.rank} {h.hypothesis}</h3><p>{h.reasoning}</p><div className="citations" aria-label={`Evidence citations for hypothesis ${h.rank}`}>{h.evidence_ids?.map(id => <Button type="button" variant="ghost" className="citation" onClick={() => navigateEvidence(id)} key={id}>{id}</Button>)}</div></div></article>)}{investigation.limitations && investigation.limitations.length > 0 && <section className="limitations" aria-labelledby="limitations-title"><h3 id="limitations-title">Limitations</h3><ul>{investigation.limitations.map((limitation, index) => <li key={index}>{limitation}</li>)}</ul></section>}</div>}
+      {investigation && <div className="investigation-result"><p className="investigation-status">Investigation completed.</p><h3>{investigation.model}</h3><p>{investigation.summary}</p>{investigation.hypotheses?.map(h => <article className="hypothesis" key={h.rank}><div><h3>#{h.rank} {h.hypothesis}</h3><p>{h.reasoning}</p><div className="citations" aria-label={`Evidence citations for hypothesis ${h.rank}`}>{h.evidence_ids?.map(id => <Button type="button" variant="ghost" className="citation" onClick={() => navigateEvidence(id)} key={id}>{id}</Button>)}</div></div></article>)}{investigation.limitations && investigation.limitations.length > 0 && <section className="limitations" aria-labelledby="limitations-title"><h3 id="limitations-title">Limitations</h3><ul>{investigation.limitations.map((limitation, index) => <li key={index}>{limitation}</li>)}</ul></section>}</div>}
     </CardContent></Card>
     <Button className="print-hidden print-report" variant="secondary" type="button" onClick={() => print()}><Printer /> Print report</Button>
   </section>;
@@ -101,6 +118,9 @@ export default function App() {
   const [status, setStatus] = useState<JobState>("idle");
   const [error, setError] = useState("");
   const [localPath, setLocalPath] = useState("");
+  const [uploadFileName, setUploadFileName] = useState("");
+  const [uploadBusy, setUploadBusy] = useState(false);
+  const [demoBusy, setDemoBusy] = useState(false);
   const sourceRef = useRef<EventSource | null>(null);
   const workflowToken = useRef(0);
   const cancelSent = useRef(false);
@@ -111,22 +131,24 @@ export default function App() {
   useEffect(() => () => { workflowToken.current += 1; closeSource(); }, [closeSource]);
 
   const demo = async () => {
-    beginWorkflow(); const token = workflowToken.current; setStatus("idle");
+    beginWorkflow(); const token = workflowToken.current; setStatus("idle"); setJob(null); setAnalysis(null); setUploadBusy(false); setUploadFileName(""); setDemoBusy(true);
     try {
       const created = await api<{ job_id: string }>("/api/analyze/demo/job");
       const completed = await api<Job>(`/api/analyze/jobs/${created.job_id}`);
       if (workflowToken.current !== token) return;
       setJob(completed); setAnalysis(completed.result ?? null); setStatus("completed");
     } catch { if (workflowToken.current === token) setError("Analysis failed."); }
+    finally { if (workflowToken.current === token) setDemoBusy(false); }
   };
   const upload = async (uploadFile: File) => {
-    beginWorkflow(); const token = workflowToken.current; setStatus("idle"); setJob(null);
+    beginWorkflow(); const token = workflowToken.current; setStatus("idle"); setJob(null); setAnalysis(null); setUploadFileName(uploadFile.name); setDemoBusy(false); setUploadBusy(true);
     const data = new FormData(); data.append("file", uploadFile);
     try { const result = await api<Analysis>("/api/analyze/upload", { method: "POST", body: data }); if (workflowToken.current === token) setAnalysis(result); }
     catch { if (workflowToken.current === token) setError("Upload failed."); }
+    finally { if (workflowToken.current === token) setUploadBusy(false); }
   };
   const local = async (path: string) => {
-    beginWorkflow(); const token = workflowToken.current; setAnalysis(null); setJob(null); setStatus("starting");
+    beginWorkflow(); const token = workflowToken.current; setAnalysis(null); setJob(null); setStatus("starting"); setUploadBusy(false); setUploadFileName(""); setDemoBusy(false);
     if (!path.trim()) { setStatus("idle"); setError("Enter an absolute local bag directory path."); return; }
     try {
       const created = await api<Job>("/api/analyze/local", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ path }) });
@@ -167,15 +189,18 @@ export default function App() {
   const activeLocal = ["starting", "running", "cancelling"].includes(status) && !analysis;
 
   let body: React.ReactNode;
-  if (activeLocal) body = <LocalProgress job={job} state={status} onCancel={cancel} />;
+  if (demoBusy) body = <Alert className="upload-progress print-hidden" aria-live="polite"><h2>Analyzing bundled demo</h2><p>Deterministic analysis is still running.</p></Alert>;
+  else if (uploadBusy) body = <Alert className="upload-progress print-hidden" aria-live="polite"><h2>Uploading and analyzing {uploadFileName}</h2><p>The browser is uploading this file. Bag Doctor analyzes it automatically after the transfer completes.</p></Alert>;
+  else if (activeLocal) body = <LocalProgress job={job} state={status} onCancel={cancel} />;
   else if (analysis) body = <AnalysisDashboard analysis={analysis} jobId={job?.job_id ?? null} />;
   else if (status === "cancelled") body = <Alert className="print-hidden" variant="warning"><h2>Analysis cancelled</h2><p>Partial results were not cached.</p></Alert>;
   else if (status === "failed") body = <Alert className="print-hidden" variant="destructive"><h2>Analysis failed</h2><p>The request ended without exposing internal details. Choose a workflow above to try again.</p></Alert>;
   else body = <section className="empty print-hidden"><Brain size={42} /><h2>Load a recording to begin</h2><Button type="button" onClick={demo}>Analyze failed robot demo</Button></section>;
 
-  return <div className="app"><aside className="print-hidden"><div className="brand"><Activity /> BAG DOCTOR</div><p className="muted">ROS 2 Evidence-Driven Failure Investigator</p><nav aria-label="Report sections"><a href="#overview">Overview</a><a href="#topics">Topics</a><a href="#evidence">Evidence</a><a href="#gpt-5.6">GPT-5.6 Investigator</a></nav></aside><main><header className="app-header print-hidden"><h1>Bag Doctor</h1><div className="actions"><Button type="button" onClick={demo}>Run bundled demo</Button><Button variant="secondary" type="button" onClick={() => file.current?.click()}><FileUp /> Upload bag</Button><input ref={file} hidden type="file" aria-label="Upload bag file" accept=".mcap,.db3,.zip" onChange={event => event.target.files?.[0] && void upload(event.target.files[0])} /></div></header>
+  return <div className="app"><aside className="print-hidden"><div className="brand"><Activity /> BAG DOCTOR</div><p className="muted">ROS 2 Evidence-Driven Failure Investigator</p><nav aria-label="Report sections"><a href="#overview">Overview</a><a href="#topics">Topics</a><a href="#evidence">Evidence</a><a href="#gpt-5.6">GPT-5.6 Investigator</a></nav></aside><main><header className="app-header print-hidden"><h1>Bag Doctor</h1><div className="actions"><Button type="button" onClick={demo}>Run bundled demo</Button><Button variant="secondary" type="button" disabled={uploadBusy} onClick={() => file.current?.click()}><FileUp /> Upload &amp; analyze bag</Button><input ref={file} hidden type="file" aria-label="Upload bag file" accept=".mcap,.db3,.zip" onChange={event => event.target.files?.[0] && void upload(event.target.files[0])} /></div></header>
+    <Card className="upload-guidance print-hidden"><CardHeader><h2>Browser upload</h2></CardHeader><CardContent>{uploadFileName && <p className="selected-file">Selected file: <strong>{uploadFileName}</strong></p>}<ul><li>Upload a standalone <code>.mcap</code> or <code>.db3</code> file. A standalone <code>.db3</code> does not require selecting <code>metadata.yaml</code> separately.</li><li>For a split bag, upload one <code>.zip</code> containing <code>metadata.yaml</code> and every <code>.db3</code> or <code>.mcap</code> segment.</li><li>Use the Local bag path workflow for large complete bags.</li><li>Browser uploads are limited to 512 MiB.</li></ul></CardContent></Card>
     <form className="local-launcher print-hidden" onSubmit={submitLocal}><label htmlFor="local-path">Local bag path</label><input id="local-path" value={localPath} onChange={event => setLocalPath(event.target.value)} placeholder="/absolute/path/to/bag-directory" /><Button type="submit">Analyze local path</Button></form>
-    {error && <Alert className="print-hidden" variant="destructive" role="alert">{error}</Alert>}{body}</main></div>;
+    {error && <Alert className="print-hidden" variant="destructive" role="alert">{error}</Alert>}{body}{!analysis && <InvestigatorUnavailable analysisPending={demoBusy || uploadBusy || activeLocal} />}</main></div>;
 }
 
 const root = document.getElementById("root");

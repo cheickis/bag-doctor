@@ -28,6 +28,8 @@ describe("Local workflow", () => {
     render(<App />); fireEvent.change(screen.getByLabelText("Local bag path"), { target: { value: "/bags/slow" } });
     fireEvent.submit(screen.getByLabelText("Local bag path").closest("form")!);
     expect(screen.getByRole("heading", { name: "Local analysis: starting" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Investigate with GPT-5.6" })).toBeDisabled();
+    expect(screen.getByText(/Analysis is still running/i)).toBeInTheDocument();
     expect(FakeEventSource.instances).toHaveLength(0);
     await act(async () => resolve(await response({ job_id: "slow", state: "queued" })));
     expect(FakeEventSource.latest().url).toContain("slow");
