@@ -160,7 +160,7 @@ Disabling third-party pytest plugin auto-loading keeps tests independent from gl
 
 ## Frontend assets and optional rebuild
 
-Committed React production assets are included under `src/bag_doctor/web/dist/`; judges do not need Node.js to install or run Bag Doctor. The legacy frontend source remains in the repository but is not served at runtime.
+The active React source is under `frontend/`, and committed production assets are included under `src/bag_doctor/web/dist/`; `GET /` serves the production React entry, so judges do not need Node.js to install or run Bag Doctor. The abandoned vanilla frontend entry has been removed.
 
 Frontend rebuilding is optional. No Node version is declared by this project, so use a Node/npm environment compatible with the locked dependencies:
 
