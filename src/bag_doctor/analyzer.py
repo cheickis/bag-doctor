@@ -126,12 +126,16 @@ def analyze_bag(
     workspace.flush()
     topics: list[TopicHealth] = []
     thresholds: dict[str, int] = {}
+    expected_periods: dict[str, int] = {}
     exact_incident_count = 0
     try:
       for topic in sorted(topic_types):
         if cancel_requested and cancel_requested(): raise AnalysisCancelled()
         median_delta = workspace.median(topic)
         mean_delta = (gap_sums[topic] / gap_counts[topic]) if gap_counts[topic] else None
+        maximum_internal_gap = workspace.db.execute(
+            "SELECT MAX(duration_ns) FROM gaps WHERE topic=?", (topic,)
+        ).fetchone()[0]
         classification, expected_period, configured_threshold = classify_topic(
             topic, message_count=counts[topic], gap_count=gap_counts[topic],
             median_gap_ns=median_delta, mean_gap_ns=mean_delta,
@@ -146,6 +150,19 @@ def analyze_bag(
         if periodic and expected_period:
             threshold = configured_threshold or max(int(minimum_silence_seconds * NANOSECONDS), int(expected_period * silence_multiplier))
             thresholds[topic] = threshold
+            expected_periods[topic] = expected_period
+
+            first_for_topic = topic_first.get(topic)
+            last_for_topic = topic_last.get(topic)
+            if first_for_topic is not None:
+                leading_gap = first_for_topic - first_timestamp
+                if leading_gap > 0 and leading_gap >= threshold:
+                    workspace.add(topic, first_timestamp, first_for_topic)
+            if last_for_topic is not None:
+                trailing_gap = last_timestamp - last_for_topic
+                if trailing_gap > 0 and trailing_gap >= threshold:
+                    workspace.add(topic, last_for_topic, last_timestamp)
+            workspace.flush()
 
         windows: list[SilenceWindow] = []
         silence_count = workspace.count(topic, threshold) if threshold else 0
@@ -160,7 +177,7 @@ def analyze_bag(
                 message_type=topic_types[topic],
                 message_count=counts[topic],
                 median_rate_hz=round(NANOSECONDS / median_delta, 3) if median_delta else None,
-                maximum_gap_seconds=_seconds(workspace.db.execute("SELECT MAX(duration_ns) FROM gaps WHERE topic=?", (topic,)).fetchone()[0]) if workspace.db.execute("SELECT COUNT(*) FROM gaps WHERE topic=?", (topic,)).fetchone()[0] else None,
+                maximum_gap_seconds=_seconds(maximum_internal_gap) if maximum_internal_gap is not None else None,
                 timing_classification=classification.value,
                 silence_windows=windows,
                 silence_window_count=silence_count,
@@ -171,7 +188,7 @@ def analyze_bag(
 
       if cancel_requested and cancel_requested():
           raise AnalysisCancelled()
-      global_details = [SilenceWindow(evidence_id=_evidence_id(path, topic, start, end, duration), topic=topic, start_seconds=_seconds(start), end_seconds=_seconds(end), duration_seconds=_seconds(duration), expected_period_seconds=_seconds(workspace.median(topic) or 0)) for topic, start, end, duration in workspace.global_details(thresholds, limits.max_incidents)]
+      global_details = [SilenceWindow(evidence_id=_evidence_id(path, topic, start, end, duration), topic=topic, start_seconds=_seconds(start - first_timestamp), end_seconds=_seconds(end - first_timestamp), duration_seconds=_seconds(duration), expected_period_seconds=_seconds(expected_periods[topic])) for topic, start, end, duration in workspace.global_details(thresholds, limits.max_incidents)]
       return AnalysisResult(
         summary=BagSummary(
             bag_name=path.name,

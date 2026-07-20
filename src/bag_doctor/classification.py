@@ -36,7 +36,7 @@ PERIODIC_MIN_MESSAGES = 20
 PERIODIC_MIN_SPAN_SECONDS = 2.0
 PERIODIC_MAX_RELATIVE_JITTER = 0.20
 PERIODIC_MIN_STABLE_FRACTION = 0.80
-KNOWN_EVENT_DRIVEN_TOPICS = frozenset({"/rosout"})
+KNOWN_EVENT_DRIVEN_TOPICS = frozenset({"/parameter_events", "/rosout"})
 
 
 def classify_topic(
