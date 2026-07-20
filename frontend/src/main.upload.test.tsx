@@ -19,9 +19,14 @@ describe("browser upload workflow", () => {
     expect(screen.getByText(/Complete deterministic analysis before GPT-5.6 investigation is available/i)).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Upload & analyze bag" })).toBeEnabled();
     const guidance = screen.getByRole("heading", { name: "Browser upload" }).closest("section");
-    expect(guidance).toHaveTextContent(/standalone \.mcap or \.db3/i);
-    expect(guidance).toHaveTextContent(/does not require selecting metadata\.yaml separately/i);
-    expect(guidance).toHaveTextContent(/split bag.*\.zip.*metadata\.yaml.*every/i);
+    const [directFiles, splitArchive] = guidance!.querySelectorAll("li");
+    expect(directFiles).toHaveTextContent(/standalone \.mcap/i);
+    expect(directFiles).toHaveTextContent(/standalone \.db3/i);
+    expect(directFiles).toHaveTextContent(/\.db3.*does not require selecting metadata\.yaml separately/i);
+    expect(splitArchive).toHaveTextContent(/complete split SQLite bag/i);
+    expect(splitArchive).toHaveTextContent(/\.zip.*metadata\.yaml/i);
+    expect(splitArchive).toHaveTextContent(/every \.db3 segment/i);
+    expect(splitArchive).not.toHaveTextContent(/\.mcap/i);
     expect(guidance).toHaveTextContent(/Local bag path workflow for large complete bags/i);
     expect(guidance).toHaveTextContent(/limited to 512 MiB/i);
 
