@@ -1,11 +1,11 @@
-from fastapi.testclient import TestClient
-import pytest
-
-from bag_doctor.main import app
-from bag_doctor.jobs import create_job, request_cancel, get_job, Job, _jobs, _lock
-from bag_doctor.main import DEMO_BAG
+import re
 import time
-from threading import Event
+
+import pytest
+from fastapi.testclient import TestClient
+
+from bag_doctor.main import DEMO_BAG, FRONTEND_INDEX, app, job_payload
+from bag_doctor.jobs import create_job, request_cancel, get_job, Job, _jobs, _lock
 from bag_doctor.analyzer import AnalysisCancelled, AnalysisProgress, analyze_bag
 from bag_doctor.jobs import _update_progress
 
@@ -24,24 +24,11 @@ def test_browser_page():
     with TestClient(app) as client:
         response = client.get("/")
     assert response.status_code == 200
-    assert "Analyze Failed Robot Demo" in response.text
-    assert "Open Local Bag" in response.text
-    assert "/api/analyze/local" in response.text
-    assert "EventSource" in response.text
-    assert "/cancel" in response.text
-    assert "job-error" in response.text
-    assert "Upload Small Bag" in response.text
-    assert "silence_window_count" in response.text
-    assert "returned_silence_window_count" in response.text
-    assert "silence_windows_truncated" in response.text
-    assert "incident_count" in response.text
-    assert "returned_incident_count" in response.text
-    assert "incidents_truncated" in response.text
-    assert "Showing ${returned.toLocaleString()} of ${total.toLocaleString()} findings" in response.text
-    assert "Showing ${" in response.text
-    assert "data.topics||[]" in response.text
-    assert "data.incidents||[]" in response.text
-    assert "Number.isInteger(value)" in response.text
+    assert response.headers["content-type"].startswith("text/html")
+    assert response.text == FRONTEND_INDEX.read_text()
+    assert '<div id="root"></div>' in response.text
+    assert re.search(r'<script[^>]+src="/assets/index-[^"]+\.js"', response.text)
+    assert re.search(r'<link[^>]+href="/assets/index-[^"]+\.css"', response.text)
 
 
 def test_job_endpoint_and_sse_exclude_result():
@@ -97,11 +84,15 @@ def test_job_progress_percentage_and_eta_rules():
     assert job.eta_seconds is None
 
 
-def test_frontend_handles_unknown_progress_total():
-    with TestClient(app) as client:
-        html = client.get("/").text
-    assert "total unavailable" in html
-    assert "indeterminate" in html
+def test_unknown_progress_total_remains_truthful_in_job_payload():
+    job = Job("unknown-total", DEMO_BAG, state="running")
+    _update_progress(job, AnalysisProgress(processed_messages=8, total_messages=None))
+
+    payload = job_payload(job, include_result=False)
+    assert payload["processed_messages"] == 8
+    assert payload["total_messages"] is None
+    assert payload["percent_complete"] is None
+    assert payload["estimated_remaining_seconds"] is None
 
 
 def test_sse_cancelled_and_job_error_events_close():
